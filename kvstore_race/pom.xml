@@ -16,5 +16,20 @@
 		<groupId>com.huawei.hwcloud.tarus.kvstore</groupId>
 		<artifactId>kvstore_common</artifactId>
 	</dependency>
+
+      <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+      <dependency>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-all</artifactId>
+          <version>4.1.23.Final</version>
+      </dependency>
+
+      <!-- https://mvnrepository.com/artifact/com.carrotsearch/hppc -->
+      <dependency>
+          <groupId>com.carrotsearch</groupId>
+          <artifactId>hppc</artifactId>
+          <version>0.8.1</version>
+      </dependency>
+
   </dependencies>
 </project>
