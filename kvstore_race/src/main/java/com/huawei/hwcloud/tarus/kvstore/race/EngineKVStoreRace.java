@@ -164,7 +164,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 		byte[] keyBytes = BufferUtil.stringToBytes(key);
 		long numKey = bytes2long(keyBytes);
 		int fileNo = hash(numKey);
-		log.info("key:{} numKey:{} fileNo:{}", key, numKey, fileNo);
+		log.info("set: key:{} valueLength:{} value:{} numKey:{} fileNo:{} ", key, value.length, new String(value), numKey, fileNo);
 
 		// valueFile offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
@@ -235,6 +235,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				valurBuffer.flip();
 				valurBuffer.get(bytes, 0, VALUE_LEN);
 				valurBuffer.clear();
+				log.info("get: key:{} value:{} numKey:{} fileNo:{} offset:{}", key, new String(bytes), numKey, fileNo, offset);
 				// 写入到value
 				val.setValue(bytes);
 			} catch (IOException e) {
@@ -294,7 +295,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 		long result = 0;
 		for (int i = 0; i < bytes.length; i++) {
 			result *= 10;
-			result |= (bytes[i] - base);
+			result += (bytes[i] - base);
 		}
 		return result;
 	}
