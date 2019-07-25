@@ -93,8 +93,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 		if (!dirParent.exists())
 			dirParent.mkdirs();
 
-
-
 		// 获取FILE_COUNT个value文件的channel
 		RandomAccessFile valueFile;
 		for (int i = 0; i < FILE_COUNT; i++) {
@@ -164,7 +162,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 		byte[] keyBytes = BufferUtil.stringToBytes(key);
 		long numKey = bytes2long(keyBytes);
 		int fileNo = hash(numKey);
-		log.info("set: key:{} valueLength:{} value:{} numKey:{} fileNo:{} ", key, value.length, new String(value), numKey, fileNo);
+//		log.info("set: key:{} valueLength:{} value:{} numKey:{} fileNo:{} ", key, value.length, new String(value), numKey, fileNo);
 
 		// valueFile offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
@@ -219,7 +217,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		// 获取map中key对应的value文件的offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
-		log.info("key:{} numKey:{} fileNo:{} offset:{}", key, numKey, fileNo, offset);
 
 		if (offset == -1) {
 			// 不存在
@@ -235,7 +232,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				valurBuffer.flip();
 				valurBuffer.get(bytes, 0, VALUE_LEN);
 				valurBuffer.clear();
-				log.info("get: key:{} value:{} numKey:{} fileNo:{} offset:{}", key, new String(bytes), numKey, fileNo, offset);
+//				log.info("get: key:{} value:{} numKey:{} fileNo:{} offset:{}", key, new String(bytes), numKey, fileNo, offset);
 				// 写入到value
 				val.setValue(bytes);
 			} catch (IOException e) {
@@ -305,7 +302,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 		return (int)(key & 0x3F);
 	}
 
-	public static final String fillThreadNo(final int no){
+	private static final String fillThreadNo(final int no){
 		DecimalFormat df = new DecimalFormat(THREAD_PATH_FORMAT);
 		return df.format(Integer.valueOf(no));
 	}

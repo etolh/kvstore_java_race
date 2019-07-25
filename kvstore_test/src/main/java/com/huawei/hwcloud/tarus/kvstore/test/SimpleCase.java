@@ -23,13 +23,16 @@ public class SimpleCase {
 
 	public double test(final String dir, final int times,  final Ref<Integer> err) {
 
+		System.out.println("lianghu test init");
 		racer.init(dir, 0);
 
-	    double write_time = write(times, err);
+		System.out.println("lianghu write init");
+		double write_time = write(times, err);
 
 	    racer.close();
 	    racer.init(dir, 0);
-	    
+
+		System.out.println("lianghu read init");
 	    double read_time = read(times, err);
 	    racer.close();
 	    return write_time + read_time;
