@@ -9,11 +9,14 @@ import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.misc.Cleaner;
+import sun.nio.ch.DirectBuffer;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.text.DecimalFormat;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -128,27 +131,20 @@ public class EngineKVStoreRace implements KVStoreRace {
 			randomKeyFile = new RandomAccessFile(keyFile, "rw");
 			keyFileChannel = randomKeyFile.getChannel();
 
-			// 读取keyFileChannel中的key和offset
-			ByteBuffer keyBuffer = ByteBuffer.allocate(KEY_LEN);	// 8B
-			ByteBuffer offsetBuffer = ByteBuffer.allocate(OFF_LEN);	//4B
-
-			// keyFileOffset记录keyFile下一个要插入的位置的绝对offset：相对于1B
 			keyFileOffset = new AtomicInteger((int)randomKeyFile.length());
-			long index = 0, size = (long) keyFileOffset.get();
 
-			while (index < size) {
-				keyBuffer.clear();
-				keyFileChannel.read(keyBuffer, index);
-				index += KEY_LEN;
+			long keyFileLen = keyFileChannel.size();
+			// 使用MMAP读写keyFile
+			int count = (int)keyFileLen/(KEY_OFF_LEN);	// 记录个数
+			MappedByteBuffer keyMmap = keyFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, keyFileLen);
 
-				offsetBuffer.clear();
-				keyFileChannel.read(offsetBuffer, index);
-				index += OFF_LEN;
-
-				keyBuffer.flip();
-				offsetBuffer.flip();
-				keyOffMap.put(keyBuffer.getLong(), offsetBuffer.getInt());
+			while (count-- > 0) {
+				long key = keyMmap.getLong();
+				int off = keyMmap.getInt();
+				keyOffMap.put(key, off);
 			}
+
+			unmap(keyMmap);
 
 		} catch (IOException e) {
 			log.warn("read key offset file error",  e);
@@ -314,5 +310,12 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static final String fillThreadNo(final int no){
 		DecimalFormat df = new DecimalFormat(THREAD_PATH_FORMAT);
 		return df.format(Integer.valueOf(no));
+	}
+
+	private void unmap(MappedByteBuffer var0) {
+		Cleaner var1 = ((DirectBuffer) var0).cleaner();
+		if (var1 != null) {
+			var1.clean();
+		}
 	}
 }
