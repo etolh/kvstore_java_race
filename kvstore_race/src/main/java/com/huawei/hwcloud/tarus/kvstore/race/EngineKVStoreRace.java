@@ -101,11 +101,13 @@ public class EngineKVStoreRace implements KVStoreRace {
 				File vFile = new File(dirParent.getPath() + File.separator + valueFileName);
 				if (!vFile.exists())
 					vFile.createNewFile();
+
 				valueFile = new RandomAccessFile(vFile, "rw");
 				valueFileChannels[i] = valueFile.getChannel();
 				// valueFileOffset[i]记录的是valueFile[i]下一个要插入值的相对offset  相对偏移量(除去4096)或右移12位
 				// valueFile.length()：字节数统计
 				valueFileOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
+
 			}catch (IOException e){
 				log.warn("open value file={} error", i, e);
 			}
@@ -122,7 +124,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 				log.warn("open key offset file error",  e);
 			}
 		}
-
 		try {
 			randomKeyFile = new RandomAccessFile(keyFile, "rw");
 			keyFileChannel = randomKeyFile.getChannel();
@@ -168,40 +169,39 @@ public class EngineKVStoreRace implements KVStoreRace {
 		int offset = keyOffMap.getOrDefault(numKey, -1);
 
 		// value写入buffer
-		ByteBuffer valueBuffer = localBufferValue.get();
-		valueBuffer.clear();
-		valueBuffer.put(value);
-//		valueBuffer.put(value, 0, value.length);
-//		valueBuffer.put(value, 0, value.length);
-		valueBuffer.flip();
-		log.info("buffer:{}", valueBuffer);
+//		ByteBuffer valueBuffer = localBufferValue.get();
+//		valueBuffer.put(value);
+//		valueBuffer.flip();
+		localBufferValue.get().put(value);
+		localBufferValue.get().flip();
+//		log.info("buffer:{}", valueBuffer);
 
 		if (offset != -1) {
 			// key重复
 			try {
-				valueFileChannels[fileNo].write(valueBuffer, (long)(offset << SHIF_NUM));
+				valueFileChannels[fileNo].write(localBufferValue.get(), (long)(offset << SHIF_NUM));
+				localBufferValue.get().clear();
 			} catch (IOException e) {
 				log.warn("write value file={} error", fileNo, e);
 			}
 		}else{
 			try {
+
 				// 获取要插入valueFile的offset，并将当前valueFile的offset加1
 				offset = valueFileOffset[fileNo].getAndIncrement();
 				// keyOffMap: 存储key和valueOff(插入的起始位置）
 				keyOffMap.put(numKey, offset);
 
-				// 将写入key和offset到keybuffer,并写入keyFile文件
-				ByteBuffer keyOffBuffer = localBufferKey.get();
-				keyOffBuffer.clear();
-				keyOffBuffer.putLong(numKey).putInt(offset);
-				keyOffBuffer.flip();
-
-				// 写入(key,valueoffset)到keyFile文件
-				keyFileChannel.write(keyOffBuffer, keyFileOffset.getAndAdd(KEY_OFF_LEN));
+				// 先将写入key和offset到keybuffer,写入keyFile文件
+				localBufferKey.get().putLong(numKey).putInt(offset);
+				localBufferKey.get().flip();
+				keyFileChannel.write(localBufferKey.get(), keyFileOffset.getAndAdd(KEY_OFF_LEN));
+				localBufferKey.get().clear();
 
 				// 写入value到valueFile文件
-				log.info(" key:{} valueLength:{} offset:{} true:{}",  key, value.length, offset, (long)(offset << SHIF_NUM));
-				valueFileChannels[fileNo].write(valueBuffer, (long)(offset << SHIF_NUM));
+				log.info(" key:{} valueLength:{} fileNo:{}  offset:{} true:{}",  key, value.length, fileNo, offset, (long)(offset << SHIF_NUM));
+				valueFileChannels[fileNo].write(localBufferValue.get(), (long)(offset << SHIF_NUM));
+				localBufferValue.get().clear();
 
 				flush(keyFileChannel);
 				flush(valueFileChannels[fileNo]);
@@ -222,35 +222,28 @@ public class EngineKVStoreRace implements KVStoreRace {
 		// 获取map中key对应的value文件的offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
 		byte[] valByte = localValueBytes.get();
-//		byte[] valByte = val.getValue();
 
 		if (offset == -1) {
 			// 不存在
 			val.setValue(null);
 		}else {
-			// 存在
-//			byte[] bytes = localValueBytes.get();
 			try {
 //				ByteBuffer valueBuffer = localBufferValue.get();
-				ByteBuffer valueBuffer = ByteBuffer.allocate(VALUE_LEN);
 				// 从valueFile中读取
-				valueFileChannels[fileNo].read(valueBuffer, (long)(offset << SHIF_NUM));
-//				log.info("key:{} get: value buffer:{}", key,valurBuffer);
+				int len = valueFileChannels[fileNo].read(localBufferValue.get(), (long)(offset << SHIF_NUM));
 //				log.info("key:{} get:   numKey:{} fileNo:{} offset:{} byte length:{}", key,  numKey, fileNo, offset, bytes.length);
 
-				valueBuffer.flip();
+				localBufferValue.get().flip();
 //				log.info("key:{} get: value buffer:{}", key,valueBuffer);
 
-				valueBuffer.get(valByte, 0, valueBuffer.limit());
-//				valueBuffer.get(bytes, 0, VALUE_LEN);
-//				valueBuffer.get(bytes, 0, valueBuffer.limit());
-//				valueBuffer.get(bytes, 0, VALUE_LEN);
+				localBufferValue.get().get(valByte, 0, len);
 //				log.info("key:{} get fileNo:{} offset:{}  value:{} ", key, fileNo, offset, new String(bytes));
 				log.info("key:{} get fileNo:{} offset:{}  value:{} ", key, fileNo, offset, valByte.length);
 
-				valueBuffer.clear();
+				localBufferValue.get().clear();
 				// 写入到value
 				val.setValue(valByte);
+
 			} catch (IOException e) {
 				log.warn("read value file={} error", fileNo, e);
 			}
