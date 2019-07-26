@@ -14,7 +14,7 @@ public class EngineKVStoreTester implements KVStoreCheck {
 
 	private static final Logger log = LoggerFactory.getLogger(EngineKVStoreTester.class);
 	
-	private static final int DEFAULT_KV_KEY_Times = 1000000;
+	private static final int DEFAULT_KV_KEY_Times = 1000;
 	
 	private int kvKeyTimes = DEFAULT_KV_KEY_Times;
 	

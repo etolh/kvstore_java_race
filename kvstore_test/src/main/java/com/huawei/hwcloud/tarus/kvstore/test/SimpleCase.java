@@ -35,7 +35,9 @@ public class SimpleCase {
 		System.out.println("lianghu read init");
 	    double read_time = read(times, err);
 	    racer.close();
-	    return write_time + read_time;
+		System.out.println("lianghu read end");
+
+		return write_time + read_time;
 	}
 	
 	public void uninit() {
@@ -94,7 +96,7 @@ public class SimpleCase {
 	}
 	
 	private final String buildKey(final int i) {
-		return String.format("t%d", i);
+		return String.format("%d", i);
 	}
 	
 	private final String buildVal(final int i) {
