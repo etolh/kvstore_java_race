@@ -1,14 +1,13 @@
 package com.huawei.hwcloud.tarus.kvstore.test;
 
-import java.io.File;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.huawei.hwcloud.tarus.kvstore.common.ConfigManager;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreCheck;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.common.ResourceManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
 
 public class EngineKVStoreTester implements KVStoreCheck {
 

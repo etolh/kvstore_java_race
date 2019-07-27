@@ -3,7 +3,6 @@ package com.huawei.hwcloud.tarus.kvstore.race;
 import com.carrotsearch.hppc.LongIntHashMap;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreRace;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
-import com.huawei.hwcloud.tarus.kvstore.exception.KVSErrorCode;
 import com.huawei.hwcloud.tarus.kvstore.exception.KVSException;
 import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 import io.netty.util.concurrent.FastThreadLocal;
@@ -133,14 +132,15 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 			keyFileOffset = new AtomicInteger((int)randomKeyFile.length());
 
-			long keyFileLen = keyFileChannel.size();
 			// 使用MMAP读写keyFile
-			int count = (int)keyFileLen/(KEY_OFF_LEN);	// 记录个数
+			long keyFileLen = keyFileChannel.size();
+			int count = 0;
 			MappedByteBuffer keyMmap = keyFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, keyFileLen);
 
-			while (count-- > 0) {
+			while (count < keyFileLen) {
 				long key = keyMmap.getLong();
 				int off = keyMmap.getInt();
+				count += (KEY_OFF_LEN);
 				keyOffMap.put(key, off);
 			}
 
@@ -159,18 +159,13 @@ public class EngineKVStoreRace implements KVStoreRace {
 		byte[] keyBytes = BufferUtil.stringToBytes(key);
 		long numKey = bytes2long(keyBytes);
 		int fileNo = hash(numKey);
-//		log.info("set: key:{} valueLength:{} value:{} numKey:{} fileNo:{} ", key, value.length, new String(value), numKey, fileNo);
 
 		// valueFile offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
 
 		// value写入buffer
-//		ByteBuffer valueBuffer = localBufferValue.get();
-//		valueBuffer.put(value);
-//		valueBuffer.flip();
 		localBufferValue.get().put(value);
 		localBufferValue.get().flip();
-//		log.info("buffer:{}", valueBuffer);
 
 		if (offset != -1) {
 			// key重复
@@ -195,12 +190,9 @@ public class EngineKVStoreRace implements KVStoreRace {
 				localBufferKey.get().clear();
 
 				// 写入value到valueFile文件
-				log.info(" key:{} valueLength:{} fileNo:{}  offset:{} true:{}",  key, value.length, fileNo, offset, (long)(offset << SHIF_NUM));
 				valueFileChannels[fileNo].write(localBufferValue.get(), (long)(offset << SHIF_NUM));
 				localBufferValue.get().clear();
 
-				flush(keyFileChannel);
-				flush(valueFileChannels[fileNo]);
 			} catch (IOException e) {
 				log.warn("write value file={} error", fileNo, e);
 			}
@@ -219,24 +211,20 @@ public class EngineKVStoreRace implements KVStoreRace {
 		int offset = keyOffMap.getOrDefault(numKey, -1);
 		byte[] valByte = localValueBytes.get();
 
+		log.info("get key:{} fileNo:{} offset:{} ", key, fileNo, offset);
+
 		if (offset == -1) {
 			// 不存在
 			val.setValue(null);
 		}else {
 			try {
-//				ByteBuffer valueBuffer = localBufferValue.get();
 				// 从valueFile中读取
 				int len = valueFileChannels[fileNo].read(localBufferValue.get(), (long)(offset << SHIF_NUM));
-//				log.info("key:{} get:   numKey:{} fileNo:{} offset:{} byte length:{}", key,  numKey, fileNo, offset, bytes.length);
 
 				localBufferValue.get().flip();
-//				log.info("key:{} get: value buffer:{}", key,valueBuffer);
-
 				localBufferValue.get().get(valByte, 0, len);
-//				log.info("key:{} get fileNo:{} offset:{}  value:{} ", key, fileNo, offset, new String(bytes));
-				log.info("key:{} get fileNo:{} offset:{}  value:{} ", key, fileNo, offset, valByte.length);
-
 				localBufferValue.get().clear();
+
 				// 写入到value
 				val.setValue(valByte);
 

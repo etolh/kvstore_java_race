@@ -4,8 +4,6 @@ Note: the project:kvstore_example is just a demo, no performance, no crash recov
 
 Linux/java8
 
-
-
 ## build:
 
 <!--after clone project-->
