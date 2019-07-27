@@ -20,5 +20,10 @@
 		<groupId>com.huawei.hwcloud.tarus.kvstore</groupId>
 		<artifactId>kvstore_race</artifactId>
 	</dependency>
+      <dependency>
+          <groupId>org.junit.jupiter</groupId>
+          <artifactId>junit-jupiter-api</artifactId>
+          <scope>compile</scope>
+      </dependency>
   </dependencies>
 </project>
