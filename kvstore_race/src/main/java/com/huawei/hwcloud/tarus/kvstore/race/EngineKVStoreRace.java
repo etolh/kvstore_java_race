@@ -20,8 +20,6 @@ import java.nio.channels.FileChannel;
 import java.text.DecimalFormat;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
-
 public class EngineKVStoreRace implements KVStoreRace {
 
 	// 日志
@@ -101,8 +99,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 			try{
 				String valueFileName = fillThreadNo(file_size) + "_" + i + ".data";
 				File vFile = new File(dirParent.getPath() + File.separator + valueFileName);
-				if (!vFile.exists())
-					vFile.createNewFile();
 
 				valueFile = new RandomAccessFile(vFile, "rw");
 				valueFileChannels[i] = valueFile.getChannel();
@@ -156,8 +152,9 @@ public class EngineKVStoreRace implements KVStoreRace {
 	@Override
 	public long set(final String key, final byte[] value) throws KVSException {
 
-		byte[] keyBytes = BufferUtil.stringToBytes(key);
-		long numKey = bytes2long(keyBytes);
+//		byte[] keyBytes = BufferUtil.stringToBytes(key);
+//		long numKey = bytes2long(keyBytes);
+		long numKey = Long.parseLong(key);
 		int fileNo = hash(numKey);
 
 		// valueFile offset
@@ -204,14 +201,15 @@ public class EngineKVStoreRace implements KVStoreRace {
 	@Override
 	public long get(final String key, final Ref<byte[]> val) throws KVSException {
 
-		long numKey = bytes2long(BufferUtil.stringToBytes(key));
+//		long numKey = bytes2long(BufferUtil.stringToBytes(key));
+		long numKey = Long.parseLong(key);
 		int fileNo = hash(numKey);
 
 		// 获取map中key对应的value文件的offset
 		int offset = keyOffMap.getOrDefault(numKey, -1);
 		byte[] valByte = localValueBytes.get();
 
-		log.info("get key:{} fileNo:{} offset:{} ", key, fileNo, offset);
+//		log.info("get key:{} fileNo:{} offset:{} ", key, fileNo, offset);
 
 		if (offset == -1) {
 			// 不存在
