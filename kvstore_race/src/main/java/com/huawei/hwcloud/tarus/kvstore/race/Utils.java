@@ -11,7 +11,7 @@ public class Utils {
 
     // 不同线程线程名前缀 key文件 01_kv_store.key value文件 01_1.data
     private static final byte base = BufferUtil.stringToBytes("0")[0];
-    private static final String THREAD_PATH_FORMAT = "00";
+    private static final String THREAD_PATH_FORMAT = "0000";
 
 
 
@@ -52,6 +52,11 @@ public class Utils {
     //
     public static int keyFileHash2(long key) {
         return (int)(key >>> 60);
+    }
+
+    // 取key前10位，一致的在统一文件中
+    public static int fileHash(long key) {
+        return (int)(key >>> 54);
     }
 
     public static final String fillThreadNo(final int no){

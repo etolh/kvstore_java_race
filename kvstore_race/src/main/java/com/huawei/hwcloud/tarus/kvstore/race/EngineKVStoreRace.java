@@ -27,42 +27,39 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static Logger log = LoggerFactory.getLogger(EngineKVStoreRace.class);
 
 	// keyFile offset: 12B(400w偏移量)   valueFile: 4KB(2^16个偏移量）
-	// 所有offset: 4B keyFile的offset，以及keyFile中offset所指向的value文件中的offset
 	private static final int KEY_LEN = 8;
 	// offset
 	private static final int OFF_LEN = 4;
 	private static final int KEY_OFF_LEN = 12;
 	// value
 	private static final int VALUE_LEN = 4096;	// 4KB
-	private static final int SHIF_NUM = 12;		// offset<<12,得到指定地址
+	private static final int SHIF_NUM = 12;		// offset<<12
 
-	// 单线程写入数据
-//	private static final int MSG_NUMBER = 4 * 10 ^ 6;
-	private static final int MSG_NUMBER_PER_MAP = 320000;
+	// 数据量
+	private static final int MSG_NUMBER = 4000000;
+	private static final int MSG_NUMBER_PER_MAP = 10240;
 
-	// 文件数量
-	private static final int FILE_COUNT = 64;
-//	private static final int FILE_SIZE = (1 << (10 * 2 + 8)); //default size: 256MB per file
+	// 文件数量:keyFile和valueFile切分1024个分区
+	private static final int PARTITION_COUNT = 1024;
 
     // 多线程读取索引文件，切分为16个索引文件
     private static int THREAD_NUM = 16;
 
 	// key-off文件
-	private static FileChannel[] keyFileChannels = new FileChannel[THREAD_NUM];
-	// keyFile文件offset
-	private static AtomicInteger[] keyFileOffsets = new AtomicInteger[THREAD_NUM];
+	private static FileChannel[] keyFileChannels = new FileChannel[PARTITION_COUNT];
 	// value文件
-	private static FileChannel[] valueFileChannels = new FileChannel[FILE_COUNT];
-	// value文件offset
-	private static AtomicInteger[] valueFileOffset = new AtomicInteger[FILE_COUNT];
+	private static FileChannel[] valueFileChannels = new FileChannel[PARTITION_COUNT];
+	// 分区文件offset
+	private static AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
 
 	// hashmap:存储key和offset的映射
-	private static final LongIntHashMap[] keyOffMaps = new LongIntHashMap[THREAD_NUM];
-	static {
-	    for (int i = 0; i < THREAD_NUM; i++)
-            keyOffMaps[i] = new LongIntHashMap(MSG_NUMBER_PER_MAP, 0.95f);
-
-    }
+	private static final LongIntHashMap keyOffMaps = new LongIntHashMap(MSG_NUMBER, 0.95f);
+//	private static final LongIntHashMap[] keyOffMaps = new LongIntHashMap[FILE_COUNT];
+//	static {
+//	    for (int i = 0; i < THREAD_NUM; i++)
+//            keyOffMaps[i] = new LongIntHashMap(MSG_NUMBER_PER_MAP, 0.99f);
+//
+//    }
 
 	// keyBuffer: 存储keyFile中(key,valueOff)值
 	private static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
@@ -91,22 +88,24 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 	@Override
 	public boolean init(final String dir, final int file_size) throws KVSException {
+
 		// 在dir父目录创建该线程对应文件
 		File dirParent = new File(dir).getParentFile();
 		// 分线程建目录
-		String dirPath = dirParent.getPath() + File.separator + file_size;
-		File dirFile = new File(dirPath);
-		if (!dirFile.exists())
-			dirFile.mkdirs();
+//		String dirPath = dirParent.getPath() + File.separator + file_size;
+//		File dirFile = new File(dirPath);
+		if (!dirParent.exists())
+			dirParent.mkdirs();
 
 		// 获取FILE_COUNT个value文件的channel
 		RandomAccessFile valueFile;
-		for (int i = 0; i < FILE_COUNT; i++) {
+		for (int i = 0; i < PARTITION_COUNT; i++) {
 			try{
-				valueFile = new RandomAccessFile(dirPath + File.separator + i + ".data", "rw");
+				String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
+				valueFile = new RandomAccessFile(dirParent.getPath() + File.separator + valueFileName, "rw");
 				valueFileChannels[i] = valueFile.getChannel();
 				// valueFileOffset[i]记录的是valueFile[i]下一个要插入值的相对offset  相对偏移量(除去4096)或右移12位
-				valueFileOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
+				partitionOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
 
 			}catch (IOException e){
 				log.warn("can't open value file{} in thread {}", i, file_size, e);
@@ -115,16 +114,29 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		// key-offset 存储文件
 		RandomAccessFile keyFile;
-		for (int i = 0; i < THREAD_NUM; i++) {
+		for (int i = 0; i < PARTITION_COUNT; i++) {
 			try {
-				keyFile = new RandomAccessFile(dirPath + File.separator + i  + ".key", "rw");
+				String keyFileName = Utils.fillThreadNo(file_size) + "_" + i + ".key";
+				keyFile = new RandomAccessFile(dirParent.getPath() + File.separator + keyFileName, "rw");
 				keyFileChannels[i] = keyFile.getChannel();
-				keyFileOffsets[i] = new AtomicInteger((int)keyFile.length());
+
+				long keyLen = keyFile.length();
+				int start = 0;
+				MappedByteBuffer mappedByteBuffer = keyFileChannels[i].map(FileChannel.MapMode.READ_ONLY, 0, keyLen);
+				while (start < keyLen) {
+					// 存储key和的offset映射，：offset:key和value在各自文件插入的偏移量(个数)
+					keyOffMaps.put(mappedByteBuffer.getLong(), mappedByteBuffer.getInt());
+					start += (KEY_OFF_LEN);
+				}
+
+				unmap(mappedByteBuffer);
 			} catch (IOException e) {
 				log.warn("can't open key file{} in thread {}", i, file_size, e);
 			}
 		}
 
+		/*
+		// 多线程读取keyFile缓存map
         ExecutorService executor = Executors.newFixedThreadPool(THREAD_NUM);
         CountDownLatch latch = new CountDownLatch(THREAD_NUM);
         for (int i = 0; i < THREAD_NUM; i++) {
@@ -162,6 +174,7 @@ public class EngineKVStoreRace implements KVStoreRace {
             log.warn("countdownlatch fail", e);
         }
         executor.shutdown();
+		*/
 
 		return true;
 	}
@@ -172,43 +185,52 @@ public class EngineKVStoreRace implements KVStoreRace {
 //		byte[] keyBytes = BufferUtil.stringToBytes(key);
 //		long numKey = bytes2long(keyBytes);
 		long numKey = Long.parseLong(key);
-        int keyFileNo = Utils.keyFileHash2(numKey);
-        int valueFileNo = Utils.valueFileHash2(numKey);
+        int paritionNo = Utils.fileHash(numKey);
+
+        log.info("partition No:{}, key:{}", paritionNo, key);
 
 		// valueFile offset
-		int offset = keyOffMaps[keyFileNo].getOrDefault(numKey, -1);
+		int offset = keyOffMaps.getOrDefault(numKey, -1);
 
 		// value写入buffer
 		localBufferValue.get().put(value);
 		localBufferValue.get().flip();
 
+
 		if (offset != -1) { // key已存在，更新
 			try {
-				valueFileChannels[valueFileNo].write(localBufferValue.get(), (long)(offset << SHIF_NUM));
+				valueFileChannels[paritionNo].write(localBufferValue.get(), ((long)offset) << SHIF_NUM);
 				localBufferValue.get().clear();
 			} catch (IOException e) {
-				log.warn("write value file={} error", valueFileNo, e);
+				log.warn("write value file={} error", paritionNo, e);
 			}
 		}else{
 			try {
 
-				// 获取要插入valueFile的offset，并将当前valueFile的offset加1
-				offset = valueFileOffset[valueFileNo].getAndIncrement();
+				// 分区文件下一个offset
+				offset = partitionOffset[paritionNo].getAndIncrement();
+
+                long valueOff =  ((long)offset) << SHIF_NUM;
+                long keyOff =  ((long)offset) * KEY_OFF_LEN;
+                // 解决 IllegalArgumentException: Negative position
+
+                log.info("off:{} key:{} value:{}", offset, keyOff, valueOff);
+
 				// keyOffMap: 存储key和valueOff(插入的起始位置）
-				keyOffMaps[keyFileNo].put(numKey, offset);
+				keyOffMaps.put(numKey, offset);
 
 				// 先将写入key和offset到keybuffer,写入keyFile文件
 				localBufferKey.get().putLong(numKey).putInt(offset);
 				localBufferKey.get().flip();
-				keyFileChannels[keyFileNo].write(localBufferKey.get(), keyFileOffsets[keyFileNo].getAndAdd(KEY_OFF_LEN));
+				keyFileChannels[paritionNo].write(localBufferKey.get(), keyOff);
 				localBufferKey.get().clear();
 
 				// 写入value到valueFile文件
-				valueFileChannels[valueFileNo].write(localBufferValue.get(), (long)(offset << SHIF_NUM));
+				valueFileChannels[paritionNo].write(localBufferValue.get(), valueOff);
 				localBufferValue.get().clear();
 
 			} catch (IOException e) {
-				log.warn("write value file={} error", valueFileNo, e);
+				log.warn("write value file={} error", paritionNo, e);
 			}
 		}
 
@@ -220,11 +242,12 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 //		long numKey = bytes2long(BufferUtil.stringToBytes(key));
         long numKey = Long.parseLong(key);
-        int keyFileNo = Utils.keyFileHash2(numKey);
-        int valueFileNo = Utils.valueFileHash2(numKey);
+        int paritionNo = Utils.fileHash(numKey);
 
-		// 获取map中key对应的value文件的offset
-		int offset = keyOffMaps[keyFileNo].getOrDefault(numKey, -1);
+        log.info("partition No:{}, key:{}", paritionNo, key);
+
+        // 获取map中key对应的value文件的offset
+		int offset = keyOffMaps.getOrDefault(numKey, -1);
 		byte[] valByte = localValueBytes.get();
 
 		if (offset == -1) {
@@ -232,8 +255,11 @@ public class EngineKVStoreRace implements KVStoreRace {
 			val.setValue(null);
 		}else {
 			try {
-				// 从valueFile中读取
-				int len = valueFileChannels[valueFileNo].read(localBufferValue.get(), (long)(offset << SHIF_NUM));
+                long valueOff =  ((long)offset) << SHIF_NUM;
+                // 从valueFile中读取
+				int len = valueFileChannels[paritionNo].read(localBufferValue.get(), valueOff);
+
+                log.info("off:{} value:{} len:{}, buffer:{}",offset, valueOff, len, localBufferValue.get());
 
 				localBufferValue.get().flip();
 				localBufferValue.get().get(valByte, 0, len);
@@ -242,7 +268,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				val.setValue(valByte);
 
 			} catch (IOException e) {
-				log.warn("read value file={} error", valueFileNo, e);
+				log.warn("read value file={} error", paritionNo, e);
 			}
 		}
 		return 0;
@@ -250,28 +276,22 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 	@Override
 	public void close() {
-		for (int i = 0; i < FILE_COUNT; i++) {
+
+		for (int i = 0; i < PARTITION_COUNT; i++) {
 			try {
+				keyFileChannels[i].close();
 				valueFileChannels[i].close();
 			} catch (IOException e) {
 				log.warn("close data file={} error!", i, e);
 			}
 		}
-
-        for (int i = 0; i < THREAD_NUM; i++) {
-            try {
-                keyFileChannels[i].close();
-            } catch (IOException e) {
-                log.warn("close key file={} error!", i, e);
-            }
-        }
-
 	}
 
 	@Override
 	public void flush() {
-		for (int i = 0; i < FILE_COUNT; i++) {
+		for (int i = 0; i < PARTITION_COUNT; i++) {
 			if (valueFileChannels[i] != null && valueFileChannels[i].isOpen()){
+				flush(keyFileChannels[i]);
 				flush(valueFileChannels[i]);
 			}
 		}
