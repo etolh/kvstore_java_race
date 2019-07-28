@@ -91,14 +91,13 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 	@Override
 	public boolean init(final String dir, final int file_size) throws KVSException {
-
-		// 在dir文件(父目录）创建该线程对应的value文件
+		// 在dir父目录创建该线程对应文件
 		File dirParent = new File(dir).getParentFile();
-		if (!dirParent.exists())
-			dirParent.mkdirs();
-
 		// 分线程建目录
-		String dirPath = dirParent.getPath() + File.separator + String.valueOf(file_size);
+		String dirPath = dirParent.getPath() + File.separator + file_size;
+		File dirFile = new File(dirPath);
+		if (!dirFile.exists())
+			dirFile.mkdirs();
 
 		// 获取FILE_COUNT个value文件的channel
 		RandomAccessFile valueFile;
@@ -144,7 +143,7 @@ public class EngineKVStoreRace implements KVStoreRace {
                         // 多线程读取keyFile缓存
                         while (start < len) {
                             key = keyMmap.getLong();
-                            keyFileNo = Utils.keyFileHash(key);
+                            keyFileNo = Utils.keyFileHash2(key);
                             keyOffMaps[keyFileNo].put(key, keyMmap.getInt());
                             start += KEY_OFF_LEN;
                         }
@@ -173,8 +172,8 @@ public class EngineKVStoreRace implements KVStoreRace {
 //		byte[] keyBytes = BufferUtil.stringToBytes(key);
 //		long numKey = bytes2long(keyBytes);
 		long numKey = Long.parseLong(key);
-        int keyFileNo = Utils.keyFileHash(numKey);
-        int valueFileNo = Utils.valueFileHash(numKey);
+        int keyFileNo = Utils.keyFileHash2(numKey);
+        int valueFileNo = Utils.valueFileHash2(numKey);
 
 		// valueFile offset
 		int offset = keyOffMaps[keyFileNo].getOrDefault(numKey, -1);
@@ -221,8 +220,8 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 //		long numKey = bytes2long(BufferUtil.stringToBytes(key));
         long numKey = Long.parseLong(key);
-        int keyFileNo = Utils.keyFileHash(numKey);
-        int valueFileNo = Utils.valueFileHash(numKey);
+        int keyFileNo = Utils.keyFileHash2(numKey);
+        int valueFileNo = Utils.valueFileHash2(numKey);
 
 		// 获取map中key对应的value文件的offset
 		int offset = keyOffMaps[keyFileNo].getOrDefault(numKey, -1);

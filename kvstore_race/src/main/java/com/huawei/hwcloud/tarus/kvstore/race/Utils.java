@@ -34,14 +34,24 @@ public class Utils {
         return result;
     }
 
-    // value file hash 64个文件,取余或0x
+    // value file hash 64个文件,取余或0x 2^6
     public static int valueFileHash(long key) {
         return (int)(key & 0x3F);
     }
 
-    // keyFile Hash
+    // keyFile Hash 16线程 2^4
     public static int keyFileHash(long key) {
         return (int)(key & 0x0F);
+    }
+
+    // 保留key前6位
+    public static int valueFileHash2(long key) {
+        return (int)(key >>> 58);
+    }
+
+    //
+    public static int keyFileHash2(long key) {
+        return (int)(key >>> 60);
     }
 
     public static final String fillThreadNo(final int no){
