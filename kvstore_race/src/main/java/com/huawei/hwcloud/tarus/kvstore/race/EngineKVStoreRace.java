@@ -4,6 +4,7 @@ import com.carrotsearch.hppc.LongIntHashMap;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreRace;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.exception.KVSException;
+import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,10 @@ public class EngineKVStoreRace implements KVStoreRace {
 	// value
 	private static final int VALUE_LEN = 4096;	// 4KB
 	private static final int SHIF_NUM = 12;		// offset<<12
+
+	// 记录当前区分号，当读取超过4000次时，分区+1
+//	private static AtomicInteger recordCount = new AtomicInteger(0);
+//	private static AtomicInteger partitionNo = new AtomicInteger(0);
 
 	// 数据量
 	private static final int MSG_NUMBER = 4000000;
@@ -183,11 +188,13 @@ public class EngineKVStoreRace implements KVStoreRace {
 	public long set(final String key, final byte[] value) throws KVSException {
 
 //		byte[] keyBytes = BufferUtil.stringToBytes(key);
+//		int paritionNo = Utils.getPartition(keyBytes);
 //		long numKey = bytes2long(keyBytes);
 		long numKey = Long.parseLong(key);
-        int paritionNo = Utils.fileHash(numKey);
 
-        log.info("partition No:{}, key:{}", paritionNo, key);
+//        int paritionNo = Utils.fileHash(numKey);
+//        int paritionNo = Utils.fileHash2(numKey);
+        int paritionNo = Utils.getPartition(BufferUtil.stringToBytes(key));
 
 		// valueFile offset
 		int offset = keyOffMaps.getOrDefault(numKey, -1);
@@ -212,9 +219,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 
                 long valueOff =  ((long)offset) << SHIF_NUM;
                 long keyOff =  ((long)offset) * KEY_OFF_LEN;
-                // 解决 IllegalArgumentException: Negative position
-
-                log.info("off:{} key:{} value:{}", offset, keyOff, valueOff);
 
 				// keyOffMap: 存储key和valueOff(插入的起始位置）
 				keyOffMaps.put(numKey, offset);
@@ -222,6 +226,10 @@ public class EngineKVStoreRace implements KVStoreRace {
 				// 先将写入key和offset到keybuffer,写入keyFile文件
 				localBufferKey.get().putLong(numKey).putInt(offset);
 				localBufferKey.get().flip();
+
+				// 解决 IllegalArgumentException: Negative position
+				log.info("partition No:{} key:{} off:{}  keyOff:{} valueOff:{} buffer:{}", paritionNo, key, offset, keyOff, valueOff, localBufferKey.get());
+
 				keyFileChannels[paritionNo].write(localBufferKey.get(), keyOff);
 				localBufferKey.get().clear();
 
@@ -242,9 +250,8 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 //		long numKey = bytes2long(BufferUtil.stringToBytes(key));
         long numKey = Long.parseLong(key);
-        int paritionNo = Utils.fileHash(numKey);
-
-        log.info("partition No:{}, key:{}", paritionNo, key);
+//        int paritionNo = Utils.fileHash2(numKey);
+        int paritionNo = Utils.getPartition(BufferUtil.stringToBytes(key));
 
         // 获取map中key对应的value文件的offset
 		int offset = keyOffMaps.getOrDefault(numKey, -1);
@@ -259,7 +266,7 @@ public class EngineKVStoreRace implements KVStoreRace {
                 // 从valueFile中读取
 				int len = valueFileChannels[paritionNo].read(localBufferValue.get(), valueOff);
 
-                log.info("off:{} value:{} len:{}, buffer:{}",offset, valueOff, len, localBufferValue.get());
+                log.info("partition No:{}, key:{} off:{} valueOff:{} lenOff:{}, buffer:{}",paritionNo, key, offset, valueOff, len, localBufferValue.get());
 
 				localBufferValue.get().flip();
 				localBufferValue.get().get(valByte, 0, len);

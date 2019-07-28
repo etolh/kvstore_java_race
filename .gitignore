@@ -30,3 +30,13 @@
 #Others
 **/*.log.*
 **/*.log
+/kvstore_race.zip
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+/README.md

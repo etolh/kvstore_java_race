@@ -4,6 +4,8 @@ Note: the project:kvstore_example is just a demo, no performance, no crash recov
 
 Linux/java8
 
+
+
 ## build:
 
 <!--after clone project-->
@@ -14,11 +16,11 @@ cd kvstore_admin/target/kvstore_admin/bin
 
 <!-- the param:1 is kv number(million) -->
 
-sh startrace test example 1
+sh startrace test example 4 16
 
 ## test race
 cd kvstore_admin/target/kvstore_admin/bin
 
 <!-- the param:1 is kv number(million) -->
 
-sh startrace test race 1
+sh startrace test race 4 16

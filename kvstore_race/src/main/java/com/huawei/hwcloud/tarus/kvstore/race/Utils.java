@@ -59,10 +59,28 @@ public class Utils {
         return (int)(key >>> 54);
     }
 
+    // 取key后10位（后10位为1 ）
+    public static int fileHash2(long key) {
+        return (int)(key & 0x003FF);
+    }
+
+    public static int getPartition(byte[] key) {
+        return ((key[0] & 0xff) << 2) | ((key[1] & 0xff) >> 6);
+    }
+
     public static final String fillThreadNo(final int no){
         DecimalFormat df = new DecimalFormat(THREAD_PATH_FORMAT);
         return df.format(Integer.valueOf(no));
     }
 
+
+    public static byte[] long2bytes(long key) {
+        byte[] result = new byte[8];
+        for (int i = 7; i >= 0; i--) {
+            result[i] = (byte)(key & 0xFF);
+            key >>= 8;
+        }
+        return result;
+    }
 
 }
