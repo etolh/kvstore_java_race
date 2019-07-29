@@ -1,10 +1,9 @@
 package com.huawei.hwcloud.tarus.kvstore.race;
 
-import com.carrotsearch.hppc.LongIntHashMap;
+import com.carrotsearch.hppc.LongLongHashMap;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreRace;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.exception.KVSException;
-import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,9 +16,6 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class EngineKVStoreRace implements KVStoreRace {
@@ -30,19 +26,20 @@ public class EngineKVStoreRace implements KVStoreRace {
 	// keyFile offset: 12B(400w偏移量)   valueFile: 4KB(2^16个偏移量）
 	private static final int KEY_LEN = 8;
 	// offset
-	private static final int OFF_LEN = 4;
-	private static final int KEY_OFF_LEN = 12;
+//	private static final int OFF_LEN = 4;
+	// key:8B fileNo:2B off:2B
+	private static final int KEY_OFF_LEN = 16;
 	// value
 	private static final int VALUE_LEN = 4096;	// 4KB
 	private static final int SHIF_NUM = 12;		// offset<<12
 
 	// 记录当前区分号，当读取超过4000次时，分区+1
-//	private static AtomicInteger recordCount = new AtomicInteger(0);
-//	private static AtomicInteger partitionNo = new AtomicInteger(0);
+	private static AtomicInteger partitionNo = new AtomicInteger(0);
+	// 一个分区最多存储:4000*1024>4000000
+	private static final int KV_NUMBER_PER_PAR = 4000;
 
 	// 数据量
-	private static final int MSG_NUMBER = 4000000;
-	private static final int MSG_NUMBER_PER_MAP = 10240;
+	private static final int MSG_NUMBER = 4096000;
 
 	// 文件数量:keyFile和valueFile切分1024个分区
 	private static final int PARTITION_COUNT = 1024;
@@ -58,7 +55,10 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
 
 	// hashmap:存储key和offset的映射
-	private static final LongIntHashMap keyOffMaps = new LongIntHashMap(MSG_NUMBER, 0.95f);
+//	private static final LongIntHashMap keyOffMaps = new LongIntHashMap(MSG_NUMBER, 0.95f);
+	// key:(parNo, offset)
+	private static final LongLongHashMap keyOffMaps = new LongLongHashMap(MSG_NUMBER, 0.99f);
+
 //	private static final LongIntHashMap[] keyOffMaps = new LongIntHashMap[FILE_COUNT];
 //	static {
 //	    for (int i = 0; i < THREAD_NUM; i++)
@@ -70,7 +70,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
 		@Override
 		protected ByteBuffer initialValue() throws Exception {
-			return ByteBuffer.allocateDirect(KEY_LEN + VALUE_LEN);
+			return ByteBuffer.allocateDirect(KEY_OFF_LEN);
 		}
 	};
 
@@ -96,9 +96,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		// 在dir父目录创建该线程对应文件
 		File dirParent = new File(dir).getParentFile();
-		// 分线程建目录
-//		String dirPath = dirParent.getPath() + File.separator + file_size;
-//		File dirFile = new File(dirPath);
 		if (!dirParent.exists())
 			dirParent.mkdirs();
 
@@ -109,15 +106,16 @@ public class EngineKVStoreRace implements KVStoreRace {
 				String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
 				valueFile = new RandomAccessFile(dirParent.getPath() + File.separator + valueFileName, "rw");
 				valueFileChannels[i] = valueFile.getChannel();
-				// valueFileOffset[i]记录的是valueFile[i]下一个要插入值的相对offset  相对偏移量(除去4096)或右移12位
 				partitionOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
-
+				if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {	// 分区已满
+					partitionNo.getAndIncrement();	// 选择下一分区
+				}
 			}catch (IOException e){
-				log.warn("can't open value file{} in thread {}", i, file_size, e);
+				log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 			}
 		}
 
-		// key-offset 存储文件
+		// key文件
 		RandomAccessFile keyFile;
 		for (int i = 0; i < PARTITION_COUNT; i++) {
 			try {
@@ -127,10 +125,11 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 				long keyLen = keyFile.length();
 				int start = 0;
+
 				MappedByteBuffer mappedByteBuffer = keyFileChannels[i].map(FileChannel.MapMode.READ_ONLY, 0, keyLen);
 				while (start < keyLen) {
 					// 存储key和的offset映射，：offset:key和value在各自文件插入的偏移量(个数)
-					keyOffMaps.put(mappedByteBuffer.getLong(), mappedByteBuffer.getInt());
+					keyOffMaps.put(mappedByteBuffer.getLong(), mappedByteBuffer.getLong());
 					start += (KEY_OFF_LEN);
 				}
 
@@ -140,105 +139,70 @@ public class EngineKVStoreRace implements KVStoreRace {
 			}
 		}
 
-		/*
-		// 多线程读取keyFile缓存map
-        ExecutorService executor = Executors.newFixedThreadPool(THREAD_NUM);
-        CountDownLatch latch = new CountDownLatch(THREAD_NUM);
-        for (int i = 0; i < THREAD_NUM; i++) {
-            if (keyFileOffsets[i].get() != 0){
-                // keyFile存在记录
-                final int index = i;
-                final int len = keyFileOffsets[i].get();
-
-                executor.execute(() -> {
-                    MappedByteBuffer keyMmap = null;
-                    try {
-                        keyMmap = keyFileChannels[index].map(FileChannel.MapMode.READ_ONLY, 0, len);
-                        int start = 0;
-                        long key;
-                        int keyFileNo;
-                        // 多线程读取keyFile缓存
-                        while (start < len) {
-                            key = keyMmap.getLong();
-                            keyFileNo = Utils.keyFileHash2(key);
-                            keyOffMaps[keyFileNo].put(key, keyMmap.getInt());
-                            start += KEY_OFF_LEN;
-                        }
-                    } catch (IOException e) {
-                        log.warn("executor fail", e);
-                    }
-                    unmap(keyMmap);
-                    latch.countDown();
-                });
-            }
-        }
-
-        try {
-            latch.await();
-        } catch (InterruptedException e) {
-            log.warn("countdownlatch fail", e);
-        }
-        executor.shutdown();
-		*/
-
 		return true;
 	}
 
 	@Override
 	public long set(final String key, final byte[] value) throws KVSException {
 
-//		byte[] keyBytes = BufferUtil.stringToBytes(key);
-//		int paritionNo = Utils.getPartition(keyBytes);
-//		long numKey = bytes2long(keyBytes);
 		long numKey = Long.parseLong(key);
-
-//        int paritionNo = Utils.fileHash(numKey);
-//        int paritionNo = Utils.fileHash2(numKey);
-        int paritionNo = Utils.getPartition(BufferUtil.stringToBytes(key));
-
-		// valueFile offset
-		int offset = keyOffMaps.getOrDefault(numKey, -1);
+		// 从map读取判断是否已经重复存储
+		long pos = keyOffMaps.getOrDefault(numKey, -1);
 
 		// value写入buffer
 		localBufferValue.get().put(value);
 		localBufferValue.get().flip();
-
-
-		if (offset != -1) { // key已存在，更新
+		int parNo = 0;
+		int offset = 0;
+		if (pos != -1) { // key已存在，更新
 			try {
-				valueFileChannels[paritionNo].write(localBufferValue.get(), ((long)offset) << SHIF_NUM);
+				int[] coms = Utils.divide(pos);
+				parNo = coms[1];
+				offset = coms[0];
+				valueFileChannels[parNo].write(localBufferValue.get(), ((long)offset) << SHIF_NUM);
 				localBufferValue.get().clear();
 			} catch (IOException e) {
-				log.warn("write value file={} error", paritionNo, e);
+				log.warn("set value Partition={} Offset={} error", parNo, offset, e);
 			}
 		}else{
 			try {
+				// 不存在
+				parNo = partitionNo.get();
+				offset = partitionOffset[parNo].getAndIncrement();
 
-				// 分区文件下一个offset
-				offset = partitionOffset[paritionNo].getAndIncrement();
+				if (offset >= KV_NUMBER_PER_PAR) {
+					// off >= 4000 当前分区已满，放到下一个分区
+					partitionNo.incrementAndGet(); // 分区+1
+					parNo = partitionNo.get();
+					offset = partitionOffset[parNo].getAndIncrement();
+				}
 
-                long valueOff =  ((long)offset) << SHIF_NUM;
-                long keyOff =  ((long)offset) * KEY_OFF_LEN;
+				long valueOff = ((long) offset) << SHIF_NUM;
+				long keyOff = ((long) offset) * KEY_OFF_LEN;
 
-				// keyOffMap: 存储key和valueOff(插入的起始位置）
-				keyOffMaps.put(numKey, offset);
-
-				// 先将写入key和offset到keybuffer,写入keyFile文件
-				localBufferKey.get().putLong(numKey).putInt(offset);
+				// partitionNo和offset组成long，分别站32位
+				long partitionOff = Utils.combine(parNo, offset);
+				localBufferKey.get().putLong(numKey).putLong(partitionOff);
 				localBufferKey.get().flip();
 
-				// 解决 IllegalArgumentException: Negative position
-				log.info("partition No:{} key:{} off:{}  keyOff:{} valueOff:{} buffer:{}", paritionNo, key, offset, keyOff, valueOff, localBufferKey.get());
+				// keyOffMap: key -> (par, offset)
+				keyOffMaps.put(numKey, partitionOff);
 
-				keyFileChannels[paritionNo].write(localBufferKey.get(), keyOff);
+				// 解决 IllegalArgumentException: Negative position
+//				log.info("partition No:{} key:{} off:{}  keyOff:{} valueOff:{} buffer:{}", parNo, key, offset, keyOff, valueOff, localBufferKey.get());
+				// 解决读取分区错误问题51
+				log.info("partition No:{} key:{} off:{}   partitionOff{}", parNo, key, offset, partitionOff);
+
+				keyFileChannels[parNo].write(localBufferKey.get(), keyOff);
 				localBufferKey.get().clear();
 
 				// 写入value到valueFile文件
-				valueFileChannels[paritionNo].write(localBufferValue.get(), valueOff);
+				valueFileChannels[parNo].write(localBufferValue.get(), valueOff);
 				localBufferValue.get().clear();
 
+
 			} catch (IOException e) {
-				log.warn("write value file={} error", paritionNo, e);
+				log.warn("set value Partition={} off={} error", parNo, offset, e);
 			}
 		}
 
@@ -248,34 +212,33 @@ public class EngineKVStoreRace implements KVStoreRace {
 	@Override
 	public long get(final String key, final Ref<byte[]> val) throws KVSException {
 
-//		long numKey = bytes2long(BufferUtil.stringToBytes(key));
         long numKey = Long.parseLong(key);
-//        int paritionNo = Utils.fileHash2(numKey);
-        int paritionNo = Utils.getPartition(BufferUtil.stringToBytes(key));
+		// 获取映射
+        long partitionOff = keyOffMaps.getOrDefault(numKey, -1);
 
-        // 获取map中key对应的value文件的offset
-		int offset = keyOffMaps.getOrDefault(numKey, -1);
-		byte[] valByte = localValueBytes.get();
-
-		if (offset == -1) {
-			// 不存在
+		if (partitionOff == -1) {
 			val.setValue(null);
 		}else {
+
+			int[] coms = Utils.divide(partitionOff);
+			int offset = coms[0];
+			int parNo = coms[1];
+			byte[] valByte = localValueBytes.get();
+
 			try {
                 long valueOff =  ((long)offset) << SHIF_NUM;
-                // 从valueFile中读取
-				int len = valueFileChannels[paritionNo].read(localBufferValue.get(), valueOff);
+				int len = valueFileChannels[parNo].read(localBufferValue.get(), valueOff);
+				// len:解决indexof
+//                log.info("partition No:{}, key:{} off:{} partitionOff:{} len:{}, buffer:{}",parNo, key, offset, partitionOff, len, localBufferValue.get());
 
-                log.info("partition No:{}, key:{} off:{} valueOff:{} lenOff:{}, buffer:{}",paritionNo, key, offset, valueOff, len, localBufferValue.get());
-
+				// 写入到value
 				localBufferValue.get().flip();
 				localBufferValue.get().get(valByte, 0, len);
 				localBufferValue.get().clear();
-				// 写入到value
 				val.setValue(valByte);
 
 			} catch (IOException e) {
-				log.warn("read value file={} error", paritionNo, e);
+				log.warn("get value file={} off={} error", parNo, offset, e);
 			}
 		}
 		return 0;

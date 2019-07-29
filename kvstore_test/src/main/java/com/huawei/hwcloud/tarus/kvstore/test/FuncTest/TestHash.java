@@ -108,6 +108,15 @@ public class TestHash {
         }
     }
 
+    @Test
+    public void testCombine() {
+//        long pos = Utils.combine(12, 234);
+        long pos = 0L;
+        //268435455
+        for (int n:Utils.divide(pos)){
+            System.out.println(n);
+        }
+    }
     private final String buildKey(final long i) {
         return String.format("%d", i);
     }

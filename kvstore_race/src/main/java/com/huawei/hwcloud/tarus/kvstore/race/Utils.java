@@ -83,4 +83,18 @@ public class Utils {
         return result;
     }
 
+    public static long combine(int parNo, int offset){
+        long partitionOff = parNo;
+        partitionOff <<= 32;
+        partitionOff += offset;
+        return partitionOff;
+    }
+
+    public static int[] divide(long pos){
+        int[] coms = new int[2];
+        coms[0] = (int)(pos & 0xFFFFFFF);
+        pos >>>= 32;
+        coms[1] = (int)(pos & 0xFFFFFFF);
+        return coms;
+    }
 }
