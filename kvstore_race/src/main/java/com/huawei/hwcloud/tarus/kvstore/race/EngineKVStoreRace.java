@@ -39,9 +39,9 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static final int KV_NUMBER_PER_PAR = 4000;
 
 	// 记录当前区分号，当读取超过4000次时，分区+1
-//	private AtomicInteger partitionNo = new AtomicInteger(0);
+	private AtomicInteger partitionNo = new AtomicInteger(0);
 	// 分区文件offset
-//	private AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
+	private AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
 
 	// key-off文件
 	private FileChannel[] keyFileChannels = new FileChannel[PARTITION_COUNT];
@@ -60,6 +60,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 //
 //    }
 
+	/*
 	private static FastThreadLocal<AtomicInteger> localPartitionNo = new FastThreadLocal<AtomicInteger>() {
 		@Override
 		protected AtomicInteger initialValue() throws Exception {
@@ -73,6 +74,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 			return new AtomicInteger[PARTITION_COUNT];
 		}
 	};
+	*/
 
 	// keyBuffer: 存储keyFile中(key,valueOff)值
 	private static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
@@ -115,17 +117,16 @@ public class EngineKVStoreRace implements KVStoreRace {
 				valueFile = new RandomAccessFile(dirParent.getPath() + File.separator + valueFileName, "rw");
 				valueFileChannels[i] = valueFile.getChannel();
 
-				/*
 				partitionOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
 				if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {	// 分区已满
 					partitionNo.getAndIncrement();	// 选择下一分区
 				}
-				*/
-
+				/*
 				localPartitionOffset.get()[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
 				if (localPartitionOffset.get()[i].get() >= KV_NUMBER_PER_PAR){
 					localPartitionNo.get().getAndIncrement();
 				}
+				*/
 			}catch (IOException e){
 				log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 			}
@@ -183,23 +184,26 @@ public class EngineKVStoreRace implements KVStoreRace {
 		}else{
 			try {
 				// 不存在
-				/*
 				parNo = partitionNo.get();
 				offset = partitionOffset[parNo].getAndIncrement();
-				*/
+
+				/*
 				parNo = localPartitionNo.get().get();
 				offset = localPartitionOffset.get()[parNo].getAndIncrement();
+				*/
 
 				if (offset >= KV_NUMBER_PER_PAR) {
 					// off >= 4000 当前分区已满，放到下一个分区
-					/*
 					partitionNo.incrementAndGet(); // 分区+1
 					parNo = partitionNo.get();
 					offset = partitionOffset[parNo].getAndIncrement();
-					*/
+
+					/*
 					localPartitionNo.get().incrementAndGet();
 					parNo = localPartitionNo.get().get();
 					offset = localPartitionOffset.get()[parNo].getAndIncrement();
+					*/
+
 				}
 
 				long valueOff = ((long) offset) << SHIF_NUM;
@@ -225,7 +229,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				int len = valueFileChannels[parNo].write(localBufferValue.get(), valueOff);
 				localBufferValue.get().clear();
 
-				log.info("set: partition No:{}  off:{}  key:{} writeLen:{}", parNo,  offset, key, len);
+				log.info("set: partition No:{}  off:{} valueOff:{} key:{} writeLen:{}", parNo,  offset, key, valueOff, len);
 
 
 			} catch (IOException e) {
@@ -257,7 +261,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				int len = valueFileChannels[parNo].read(localBufferValue.get(), valueOff);
 
 				// len:解决IndexOutOfBoundsException: 查看是否从valueFile中读取到数据
-//                log.info("partition No:{}, key:{} off:{} partitionOff:{} len:{}, buffer:{}",parNo, key, offset, partitionOff, len, localBufferValue.get());
+                log.info("partition No:{}, key:{} off:{} valueOff:{} partitionOff:{} len:{}, buffer:{}",parNo, key, offset,valueOff, partitionOff, len, localBufferValue.get());
 
 				// 写入到value
 				localBufferValue.get().flip();
