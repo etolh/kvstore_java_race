@@ -1,6 +1,6 @@
 package com.huawei.hwcloud.tarus.kvstore.test.FuncTest;
 
-import com.huawei.hwcloud.tarus.kvstore.race.Utils;
+import com.huawei.hwcloud.tarus.kvstore.race.common.Utils;
 import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 import org.junit.jupiter.api.Test;
 

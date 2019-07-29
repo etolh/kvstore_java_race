@@ -1,4 +1,4 @@
-package com.huawei.hwcloud.tarus.kvstore.race;
+package com.huawei.hwcloud.tarus.kvstore.race.common;
 
 import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 

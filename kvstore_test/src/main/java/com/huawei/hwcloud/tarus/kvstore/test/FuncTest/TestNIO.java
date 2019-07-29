@@ -3,8 +3,10 @@ package com.huawei.hwcloud.tarus.kvstore.test.FuncTest;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
 /**
@@ -40,6 +42,22 @@ public class TestNIO {
         File file = new File(path);
         String s = file.getPath() + File.separator + f;
         System.out.println(s);
+    }
+
+    @Test
+    public void testFileChannelWrite() {
+        String path = "test.data";
+        try {
+            RandomAccessFile file = new RandomAccessFile(path, "rw");
+            FileChannel channel = file.getChannel();
+
+            int len = channel.write(ByteBuffer.wrap("ABCD".getBytes()));
+            System.out.println(len);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 
 }
