@@ -32,32 +32,30 @@ public class EngineKVStoreRace implements KVStoreRace {
 	// value
 	private static final int VALUE_LEN = 4096;	// 4KB
 	private static final int SHIF_NUM = 12;		// offset<<12
-
-	// 记录当前区分号，当读取超过4000次时，分区+1
-	private static AtomicInteger partitionNo = new AtomicInteger(0);
+	// 数据量
+	private static final int MSG_NUMBER = 4096000;
+	// 文件数量:keyFile和valueFile切分1024个分区
+	private static final int PARTITION_COUNT = 1024;
+	// 多线程读取索引文件，切分为16个索引文件
+//    private static int THREAD_NUM = 16;
 	// 一个分区最多存储:4000*1024>4000000
 	private static final int KV_NUMBER_PER_PAR = 4000;
 
-	// 数据量
-	private static final int MSG_NUMBER = 4096000;
-
-	// 文件数量:keyFile和valueFile切分1024个分区
-	private static final int PARTITION_COUNT = 1024;
-
-    // 多线程读取索引文件，切分为16个索引文件
-    private static int THREAD_NUM = 16;
+	// 记录当前区分号，当读取超过4000次时，分区+1
+	private AtomicInteger partitionNo = new AtomicInteger(0);
+	// 分区文件offset
+	private AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
 
 	// key-off文件
-	private static FileChannel[] keyFileChannels = new FileChannel[PARTITION_COUNT];
+	private FileChannel[] keyFileChannels = new FileChannel[PARTITION_COUNT];
 	// value文件
-	private static FileChannel[] valueFileChannels = new FileChannel[PARTITION_COUNT];
-	// 分区文件offset
-	private static AtomicInteger[] partitionOffset = new AtomicInteger[PARTITION_COUNT];
+	private FileChannel[] valueFileChannels = new FileChannel[PARTITION_COUNT];
+
 
 	// hashmap:存储key和offset的映射
 //	private static final LongIntHashMap keyOffMaps = new LongIntHashMap(MSG_NUMBER, 0.95f);
 	// key:(parNo, offset)
-	private static final LongLongHashMap keyOffMaps = new LongLongHashMap(MSG_NUMBER, 0.99f);
+	private LongLongHashMap keyOffMaps = new LongLongHashMap(MSG_NUMBER, 0.99f);
 
 //	private static final LongIntHashMap[] keyOffMaps = new LongIntHashMap[FILE_COUNT];
 //	static {
@@ -65,7 +63,21 @@ public class EngineKVStoreRace implements KVStoreRace {
 //            keyOffMaps[i] = new LongIntHashMap(MSG_NUMBER_PER_MAP, 0.99f);
 //
 //    }
+	/*
+	private static FastThreadLocal<AtomicInteger> localPartitionNo = new FastThreadLocal<AtomicInteger>() {
+		@Override
+		protected AtomicInteger initialValue() throws Exception {
+			return new AtomicInteger(0);
+		}
+	};
 
+	private static FastThreadLocal<AtomicInteger[]> localPartitionOffset = new FastThreadLocal<AtomicInteger[]>() {
+		@Override
+		protected AtomicInteger[] initialValue() throws Exception {
+			return new AtomicInteger[PARTITION_COUNT];
+		}
+	};
+	*/
 	// keyBuffer: 存储keyFile中(key,valueOff)值
 	private static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
 		@Override
@@ -110,6 +122,12 @@ public class EngineKVStoreRace implements KVStoreRace {
 				if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {	// 分区已满
 					partitionNo.getAndIncrement();	// 选择下一分区
 				}
+				/*
+				localPartitionOffset.get()[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
+				if (localPartitionOffset.get()[i].get() >= KV_NUMBER_PER_PAR){
+					localPartitionNo.get().getAndIncrement();
+				}
+				*/
 			}catch (IOException e){
 				log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 			}
@@ -135,7 +153,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 				unmap(mappedByteBuffer);
 			} catch (IOException e) {
-				log.warn("can't open key file{} in thread {}", i, file_size, e);
+				log.warn("init: can't open key file{} in thread {}", i, file_size, e);
 			}
 		}
 
@@ -162,19 +180,27 @@ public class EngineKVStoreRace implements KVStoreRace {
 				valueFileChannels[parNo].write(localBufferValue.get(), ((long)offset) << SHIF_NUM);
 				localBufferValue.get().clear();
 			} catch (IOException e) {
-				log.warn("set value Partition={} Offset={} error", parNo, offset, e);
+				log.warn("set: value Partition={} Offset={} error", parNo, offset, e);
 			}
 		}else{
 			try {
 				// 不存在
 				parNo = partitionNo.get();
 				offset = partitionOffset[parNo].getAndIncrement();
-
+				/*
+				parNo = localPartitionNo.get().get();
+				offset = localPartitionOffset.get()[parNo].getAndIncrement();
+				*/
 				if (offset >= KV_NUMBER_PER_PAR) {
 					// off >= 4000 当前分区已满，放到下一个分区
 					partitionNo.incrementAndGet(); // 分区+1
 					parNo = partitionNo.get();
 					offset = partitionOffset[parNo].getAndIncrement();
+					/*
+					localPartitionNo.get().incrementAndGet();
+					parNo = localPartitionNo.get().get();
+					offset = localPartitionOffset.get()[parNo].getAndIncrement();
+					*/
 				}
 
 				long valueOff = ((long) offset) << SHIF_NUM;
@@ -191,7 +217,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				// 解决 IllegalArgumentException: Negative position
 //				log.info("partition No:{} key:{} off:{}  keyOff:{} valueOff:{} buffer:{}", parNo, key, offset, keyOff, valueOff, localBufferKey.get());
 				// 解决读取分区错误问题51
-				log.info("partition No:{} key:{} off:{}   partitionOff{}", parNo, key, offset, partitionOff);
+				log.info("set: partition No:{} key:{} off:{}   partitionOff{}", parNo, key, offset, partitionOff);
 
 				keyFileChannels[parNo].write(localBufferKey.get(), keyOff);
 				localBufferKey.get().clear();
@@ -202,7 +228,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 
 			} catch (IOException e) {
-				log.warn("set value Partition={} off={} error", parNo, offset, e);
+				log.warn("set: value Partition={} off={} error", parNo, offset, e);
 			}
 		}
 
@@ -238,7 +264,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				val.setValue(valByte);
 
 			} catch (IOException e) {
-				log.warn("get value file={} off={} error", parNo, offset, e);
+				log.warn("get: value file={} off={} error", parNo, offset, e);
 			}
 		}
 		return 0;
