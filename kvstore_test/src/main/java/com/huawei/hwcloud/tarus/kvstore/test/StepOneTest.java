@@ -39,9 +39,19 @@ public class StepOneTest {
                 System.out.println("error");
             }
         }
+
+        for (int  i = 1; i <= nums; i++){
+            String key = buildKey(i);
+            byte[] val = buildVal(i);
+            Ref<byte[]> getVal = Ref.of(byte[].class);
+            race.get(key, getVal);
+            if (!Arrays.equals(val, getVal.getValue())){
+                System.out.println("error");
+            }
+        }
         long end = System.currentTimeMillis();
         System.out.println("times:"+String.valueOf(end-begin));
-        remove_files(path);
+        remove_files(new File(path).getParent());
     }
 
 

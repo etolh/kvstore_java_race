@@ -3,7 +3,6 @@ package com.huawei.hwcloud.tarus.kvstore.test.FuncTest;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -58,6 +57,14 @@ public class TestNIO {
             e.printStackTrace();
         }
 
+    }
+
+    @Test
+    public void testBufferget(){
+        ByteBuffer buffer = ByteBuffer.allocate(4);
+        byte[] bytes = "ABCD".getBytes();
+        System.out.println(bytes.length);
+        buffer.get(bytes, 0, -1);
     }
 
 }
