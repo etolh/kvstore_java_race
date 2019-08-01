@@ -13,6 +13,7 @@ import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -77,8 +78,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private DirectIOLib directIOLib;
 	private int threadID;
 	private String filePath;
-//	private DirectChannel[] keyFileChannelsDIO = new DirectChannelImpl[PARTITION_COUNT];
-//	private DirectChannel[] valueFileChannelsDIO = new DirectChannelImpl[PARTITION_COUNT];
 
 	@Override
 	public boolean init(final String dir, final int file_size) throws KVSException {
@@ -94,12 +93,13 @@ public class EngineKVStoreRace implements KVStoreRace {
 		this.filePath = dirParent.getPath();
 
 		if (directIOLib.binit) {	// DIO模式
+
 			DirectRandomAccessFile valueFile;
 			for (int i = 0; i < PARTITION_COUNT; i++) {
 				String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
 				try {
 					valueFile = new DirectRandomAccessFile(new File(dirParent.getPath() + File.separator + valueFileName), "rw");
-					partitionOffset[i] = new AtomicInteger((int)valueFile.length());
+					partitionOffset[i] = new AtomicInteger((int)(valueFile.length()>>>SHIF_NUM));
 					if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {
 						partitionNo.getAndIncrement();
 					}
@@ -109,20 +109,25 @@ public class EngineKVStoreRace implements KVStoreRace {
 				}
 			}
 
+			// keyFile: 4KB
 			DirectRandomAccessFile keyFile;
 			for (int i = 0; i < PARTITION_COUNT; i++) {
 				String keyFileName = Utils.fillThreadNo(file_size) + "_" + i + ".key";
 				try {
 					keyFile = new DirectRandomAccessFile(new File(dirParent.getPath() + File.separator + keyFileName), "rw");
 					// 读取key构建map
-					long keyLen = keyFile.length();
-					ByteBuffer keyBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, (int)keyLen);
-
-					int start =0;
-					while (start < keyLen) {
+					int indexSize = partitionOffset[i].get();	// kv个数
+					ByteBuffer keyBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, (indexSize * KEY_OFF_LEN / VALUE_LEN + 1) * VALUE_LEN);
+					// 读到keyBuffer
+					keyFile.read(keyBuffer, 0);
+					keyBuffer.position(0);
+					keyBuffer.limit(indexSize * KEY_OFF_LEN);
+					for (int k = 0; k < indexSize; k++) {
+						keyBuffer.position(k * KEY_OFF_LEN);
 						keyOffMaps.put(keyBuffer.getLong(), keyBuffer.getLong());
-						start += KEY_OFF_LEN;
 					}
+
+					keyBuffer.clear();
 					keyFile.close();
 				} catch (IOException e) {
 					log.warn("init: can't open key file{} in thread {}", i, file_size, e);
@@ -189,33 +194,77 @@ public class EngineKVStoreRace implements KVStoreRace {
 			parNo = partitionNo.get();
 			offset = partitionOffset[parNo].getAndIncrement();
 		}
+
 		long valueOff = ((long) offset) << SHIF_NUM;
 		long keyOff = ((long) offset) * KEY_OFF_LEN;
 		// partitionNo和offset组成long，各自32位
 		long partitionOff = Utils.combine(parNo, offset);
-		localBufferKey.get().putLong(numKey).putLong(partitionOff);
-		localBufferKey.get().flip();
 		// keyOffMap: key -> (par, offset)
 		keyOffMaps.put(numKey, partitionOff);
 
 		if (directIOLib.binit){
+
+			log.info("set: partition No:{}  off:{} valueOff:{} key:{} ", parNo,  offset, key, valueOff);
+
+			// 写keyFile
+			/*
+			String keyFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".key";
+			ByteBuffer keyBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, KEY_OFF_LEN);
+			keyBuffer.putLong(numKey).putLong(partitionOff);
+			keyBuffer.flip();
+			try {
+				DirectRandomAccessFile keyFile = new DirectRandomAccessFile(new File(filePath + File.separator + keyFileName), "rw");
+				keyFile.write(keyBuffer, keyOff);
+				keyFile.close();
+			} catch (IOException e) {
+				log.warn("set: open key file error Partition={} off={}", parNo, offset, e);
+			}
+			*/
+
+			String keyFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".key";
+			try {
+				RandomAccessFile keyFile = new RandomAccessFile(filePath + File.separator + keyFileName, "rw");
+//				long keyLen = keyFile.length();
+				// 读写模式 mmap 期望大小为 4000*16
+				MappedByteBuffer mappedByteBuffer = keyFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, KV_NUMBER_PER_PAR * KEY_OFF_LEN);
+
+				ByteBuffer keyBuffer = localBufferKey.get();
+				keyBuffer.clear();
+				keyBuffer.putLong(numKey).putLong(partitionOff);
+				keyBuffer.flip();
+
+				// 使用mmap写keyFile
+				mappedByteBuffer.position((int)keyOff);	// 定位到写入位置
+				mappedByteBuffer.put(keyBuffer);
+
+				unmap(mappedByteBuffer);
+				keyFile.close();
+
+			} catch (IOException e) {
+				log.warn("set: open key file error Partition={} off={}", parNo, offset, e);
+			}
+
+			// 写valueFile
 			String valueFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".data";
 			ByteBuffer valBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, VALUE_LEN);
 			valBuffer.put(value);
 			valBuffer.flip();
+
 			try {
-				DirectRandomAccessFile directRandomAccessFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
-				directRandomAccessFile.write(valBuffer, valueOff);
-				directRandomAccessFile.close();
+				DirectRandomAccessFile valueFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
+				valueFile.write(valBuffer, valueOff);
+				valueFile.close();
 			} catch (IOException e) {
 				log.warn("set: open value file error Partition={} off={}", parNo, offset, e);
 			}
-
 
 		}else {
 			// value写入buffer
 			localBufferValue.get().put(value);
 			localBufferValue.get().flip();
+
+			localBufferKey.get().putLong(numKey).putLong(partitionOff);
+			localBufferKey.get().flip();
 
 			try {
 				// 解决 IllegalArgumentException: Negative position
@@ -249,7 +298,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		if (partitionOff == -1) {
 			val.setValue(null);
-
 		}else {
 
 			int[] coms = Utils.divide(partitionOff);
@@ -260,16 +308,18 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 			if (directIOLib.binit)
 			{
+				log.info("get:partition No:{}, key:{} off:{} valueOff:{} partitionOff:{}",parNo, key, offset,valueOff, partitionOff);
+
 				String valueFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".data";
 				ByteBuffer valBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, VALUE_LEN);
 				try {
-					DirectRandomAccessFile directRandomAccessFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
-					int len = directRandomAccessFile.read(valBuffer, valueOff);
+					DirectRandomAccessFile valueFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
+					int len = valueFile.read(valBuffer, valueOff);
 					valBuffer.flip();
 					valBuffer.get(valByte, 0, len);
 					valBuffer.clear();
 
-					directRandomAccessFile.close();
+					valueFile.close();
 				} catch (IOException e) {
 					log.warn("get: openb value file={} off={} error", parNo, offset, e);
 				}
@@ -292,6 +342,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					log.warn("get: value file={} off={} error", parNo, offset, e);
 				}
 			}
+			log.info("get: vallength:{}",valByte.length);
 			val.setValue(valByte);
 		}
 		return 0;
