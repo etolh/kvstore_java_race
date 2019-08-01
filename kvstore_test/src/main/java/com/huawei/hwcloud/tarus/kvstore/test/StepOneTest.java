@@ -3,6 +3,7 @@ package com.huawei.hwcloud.tarus.kvstore.test;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreRace;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.race.EngineKVStoreRace;
+import com.huawei.hwcloud.tarus.kvstore.race.common.Utils;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -25,14 +26,14 @@ public class StepOneTest {
         long begin = System.currentTimeMillis();
 
         for (int i = 1; i <= nums; i++) {
-            String key = buildKey(i);
-            byte[] val = buildVal(i);
+            String key = Utils.buildKey(i);
+            byte[] val = Utils.buildVal(i);
             race.set(key, val);
         }
 
         for (int  i = nums; i >= 1; i--){
-            String key = buildKey(i);
-            byte[] val = buildVal(i);
+            String key = Utils.buildKey(i);
+            byte[] val = Utils.buildVal(i);
             Ref<byte[]> getVal = Ref.of(byte[].class);
             race.get(key, getVal);
             if (!Arrays.equals(val, getVal.getValue())){
@@ -41,8 +42,8 @@ public class StepOneTest {
         }
 
         for (int  i = 1; i <= nums; i++){
-            String key = buildKey(i);
-            byte[] val = buildVal(i);
+            String key = Utils.buildKey(i);
+            byte[] val = Utils.buildVal(i);
             Ref<byte[]> getVal = Ref.of(byte[].class);
             race.get(key, getVal);
             if (!Arrays.equals(val, getVal.getValue())){
@@ -52,17 +53,6 @@ public class StepOneTest {
         long end = System.currentTimeMillis();
         System.out.println("times:"+String.valueOf(end-begin));
         remove_files(new File(path).getParent());
-    }
-
-
-    private final String buildKey(final long i) {
-        return String.format("%d", i);
-    }
-
-    private final byte[] buildVal(final int i) {
-        byte[] bytes = new byte[4096];
-        Arrays.fill(bytes,(byte)i);
-        return bytes;
     }
 
     private void remove_files(final String dir) {

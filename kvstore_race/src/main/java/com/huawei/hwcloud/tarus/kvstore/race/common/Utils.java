@@ -3,6 +3,7 @@ package com.huawei.hwcloud.tarus.kvstore.race.common;
 import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 
 import java.text.DecimalFormat;
+import java.util.Arrays;
 
 /**
  *  Utils
@@ -96,5 +97,15 @@ public class Utils {
         pos >>>= 32;
         coms[1] = (int)(pos & 0xFFFFFFF);
         return coms;
+    }
+
+    public static final String buildKey(final long i) {
+        return String.format("%d", i);
+    }
+
+    public static final byte[] buildVal(final int i) {
+        byte[] bytes = new byte[4096];
+        Arrays.fill(bytes,(byte)i);
+        return bytes;
     }
 }

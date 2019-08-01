@@ -103,6 +103,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {
 						partitionNo.getAndIncrement();
 					}
+					valueFile.close();
 				} catch (IOException e) {
 					log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 				}
@@ -122,6 +123,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 						keyOffMaps.put(keyBuffer.getLong(), keyBuffer.getLong());
 						start += KEY_OFF_LEN;
 					}
+					keyFile.close();
 				} catch (IOException e) {
 					log.warn("init: can't open key file{} in thread {}", i, file_size, e);
 				}
@@ -204,9 +206,11 @@ public class EngineKVStoreRace implements KVStoreRace {
 			try {
 				DirectRandomAccessFile directRandomAccessFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
 				directRandomAccessFile.write(valBuffer, valueOff);
+				directRandomAccessFile.close();
 			} catch (IOException e) {
 				log.warn("set: open value file error Partition={} off={}", parNo, offset, e);
 			}
+
 
 		}else {
 			// value写入buffer
@@ -264,6 +268,8 @@ public class EngineKVStoreRace implements KVStoreRace {
 					valBuffer.flip();
 					valBuffer.get(valByte, 0, len);
 					valBuffer.clear();
+
+					directRandomAccessFile.close();
 				} catch (IOException e) {
 					log.warn("get: openb value file={} off={} error", parNo, offset, e);
 				}
@@ -293,24 +299,24 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 	@Override
 	public void close() {
-		for (int i = 0; i < PARTITION_COUNT; i++) {
-			try {
-				keyFileChannels[i].close();
-				valueFileChannels[i].close();
-			} catch (IOException e) {
-				log.warn("close data file={} error!", i, e);
-			}
-		}
+//		for (int i = 0; i < PARTITION_COUNT; i++) {
+//			try {
+//				keyFileChannels[i].close();
+//				valueFileChannels[i].close();
+//			} catch (IOException e) {
+//				log.warn("close data file={} error!", i, e);
+//			}
+//		}
 	}
 
 	@Override
 	public void flush() {
-		for (int i = 0; i < PARTITION_COUNT; i++) {
-			if (valueFileChannels[i] != null && valueFileChannels[i].isOpen()){
-				flush(keyFileChannels[i]);
-				flush(valueFileChannels[i]);
-			}
-		}
+//		for (int i = 0; i < PARTITION_COUNT; i++) {
+//			if (valueFileChannels[i] != null && valueFileChannels[i].isOpen()){
+//				flush(keyFileChannels[i]);
+//				flush(valueFileChannels[i]);
+//			}
+//		}
 	}
 
 	// flush channel data to disk

@@ -1,5 +1,7 @@
 package com.huawei.hwcloud.tarus.kvstore.test.FuncTest;
 
+import com.huawei.hwcloud.tarus.kvstore.race.common.Constant;
+import com.huawei.hwcloud.tarus.kvstore.race.common.Utils;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -67,4 +69,27 @@ public class TestNIO {
         buffer.get(bytes, 0, -1);
     }
 
+    /**
+     * 测试写4个4KB数据后才落盘
+     */
+    @Test
+    public void TestFourBufferWrite() {
+        int bufferPosition = 0;
+        int times = 102;
+
+        ByteBuffer buffer = ByteBuffer.allocate(4 * Constant.VALUE_LEN);
+        for (int i = 1; i <= times; i++) {
+            byte[] vals = Utils.buildVal(i);
+            buffer.put(vals);
+            bufferPosition++;
+            if (bufferPosition >= 4){
+                buffer.position(0);
+                buffer.limit(bufferPosition + Constant.VALUE_LEN);
+            }
+
+        }
+
+    }
+
+//    public void write(byte[])
 }
