@@ -6,6 +6,7 @@ import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.exception.KVSException;
 import com.huawei.hwcloud.tarus.kvstore.race.common.Utils;
 import io.netty.util.concurrent.FastThreadLocal;
+import moe.cnkirito.kdio.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sun.misc.Cleaner;
@@ -20,7 +21,6 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class EngineKVStoreRace implements KVStoreRace {
-	// 日志
 	private static Logger log = LoggerFactory.getLogger(EngineKVStoreRace.class);
 	// key:8B fileNo:2B off:2B
 	private static final int KEY_OFF_LEN = 16;
@@ -74,52 +74,99 @@ public class EngineKVStoreRace implements KVStoreRace {
 		}
 	};
 
+	private DirectIOLib directIOLib;
+	private int threadID;
+	private String filePath;
+//	private DirectChannel[] keyFileChannelsDIO = new DirectChannelImpl[PARTITION_COUNT];
+//	private DirectChannel[] valueFileChannelsDIO = new DirectChannelImpl[PARTITION_COUNT];
+
 	@Override
 	public boolean init(final String dir, final int file_size) throws KVSException {
+
+		this.directIOLib = DirectIOLib.getLibForPath("/");
+		this.threadID = file_size;
 
 		// 在dir父目录创建该线程对应文件
 		File dirParent = new File(dir).getParentFile();
 		if (!dirParent.exists())
 			dirParent.mkdirs();
 
-		// 获取FILE_COUNT个value文件的channel
-		RandomAccessFile valueFile;
-		for (int i = 0; i < PARTITION_COUNT; i++) {
-			try{
-				String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
-				valueFile = new RandomAccessFile(dirParent.getPath() + File.separator + valueFileName, "rw");
-				valueFileChannels[i] = valueFile.getChannel();
+		this.filePath = dirParent.getPath();
 
-				partitionOffset[i] = new AtomicInteger((int)(valueFile.length() >>> SHIF_NUM));
-				if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {	// 分区已满
-					partitionNo.getAndIncrement();	// 选择下一分区
+		if (directIOLib.binit) {	// DIO模式
+			DirectRandomAccessFile valueFile;
+			for (int i = 0; i < PARTITION_COUNT; i++) {
+				String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
+				try {
+					valueFile = new DirectRandomAccessFile(new File(dirParent.getPath() + File.separator + valueFileName), "rw");
+					partitionOffset[i] = new AtomicInteger((int)valueFile.length());
+					if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {
+						partitionNo.getAndIncrement();
+					}
+				} catch (IOException e) {
+					log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 				}
-			}catch (IOException e){
-				log.warn("init: can't open value file{} in thread {}", i, file_size, e);
+			}
+
+			DirectRandomAccessFile keyFile;
+			for (int i = 0; i < PARTITION_COUNT; i++) {
+				String keyFileName = Utils.fillThreadNo(file_size) + "_" + i + ".key";
+				try {
+					keyFile = new DirectRandomAccessFile(new File(dirParent.getPath() + File.separator + keyFileName), "rw");
+					// 读取key构建map
+					long keyLen = keyFile.length();
+					ByteBuffer keyBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, (int)keyLen);
+
+					int start =0;
+					while (start < keyLen) {
+						keyOffMaps.put(keyBuffer.getLong(), keyBuffer.getLong());
+						start += KEY_OFF_LEN;
+					}
+				} catch (IOException e) {
+					log.warn("init: can't open key file{} in thread {}", i, file_size, e);
+				}
 			}
 		}
+		else {
+			// 获取FILE_COUNT个value文件的channel
+			RandomAccessFile valueFile;
+			for (int i = 0; i < PARTITION_COUNT; i++) {
+				try {
+					String valueFileName = Utils.fillThreadNo(file_size) + "_" + i + ".data";
+					valueFile = new RandomAccessFile(dirParent.getPath() + File.separator + valueFileName, "rw");
+					valueFileChannels[i] = valueFile.getChannel();
 
-		// key文件
-		RandomAccessFile keyFile;
-		for (int i = 0; i < PARTITION_COUNT; i++) {
-			try {
-				String keyFileName = Utils.fillThreadNo(file_size) + "_" + i + ".key";
-				keyFile = new RandomAccessFile(dirParent.getPath() + File.separator + keyFileName, "rw");
-				keyFileChannels[i] = keyFile.getChannel();
-
-				long keyLen = keyFile.length();
-				int start = 0;
-
-				MappedByteBuffer mappedByteBuffer = keyFileChannels[i].map(FileChannel.MapMode.READ_ONLY, 0, keyLen);
-				while (start < keyLen) {
-					// 存储key和的offset映射，：offset:key和value在各自文件插入的偏移量(个数)
-					keyOffMaps.put(mappedByteBuffer.getLong(), mappedByteBuffer.getLong());
-					start += (KEY_OFF_LEN);
+					partitionOffset[i] = new AtomicInteger((int) (valueFile.length() >>> SHIF_NUM));
+					if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {    // 分区已满
+						partitionNo.getAndIncrement();    // 选择下一分区
+					}
+				} catch (IOException e) {
+					log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 				}
+			}
 
-				unmap(mappedByteBuffer);
-			} catch (IOException e) {
-				log.warn("init: can't open key file{} in thread {}", i, file_size, e);
+			// key文件
+			RandomAccessFile keyFile;
+			for (int i = 0; i < PARTITION_COUNT; i++) {
+				try {
+					String keyFileName = Utils.fillThreadNo(file_size) + "_" + i + ".key";
+					keyFile = new RandomAccessFile(dirParent.getPath() + File.separator + keyFileName, "rw");
+					keyFileChannels[i] = keyFile.getChannel();
+
+					long keyLen = keyFile.length();
+					int start = 0;
+
+					MappedByteBuffer mappedByteBuffer = keyFileChannels[i].map(FileChannel.MapMode.READ_ONLY, 0, keyLen);
+					while (start < keyLen) {
+						// 存储key和的offset映射，：offset:key和value在各自文件插入的偏移量(个数)
+						keyOffMaps.put(mappedByteBuffer.getLong(), mappedByteBuffer.getLong());
+						start += (KEY_OFF_LEN);
+					}
+
+					unmap(mappedByteBuffer);
+				} catch (IOException e) {
+					log.warn("init: can't open key file{} in thread {}", i, file_size, e);
+				}
 			}
 		}
 //		log.info("init");
@@ -132,48 +179,60 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		long numKey = Long.parseLong(key);
 		// 从map读取判断是否已经重复存储
-		long pos = keyOffMaps.getOrDefault(numKey, -1);
-
-		// value写入buffer
-		localBufferValue.get().put(value);
-		localBufferValue.get().flip();
+//		long pos = keyOffMaps.getOrDefault(numKey, -1);
 		int parNo = partitionNo.get();
 		int offset = partitionOffset[parNo].getAndIncrement();
-		try {
-			if (offset >= KV_NUMBER_PER_PAR) {
-				// off >= 4000 当前分区已满，放到下一个分区
-				partitionNo.incrementAndGet(); // 分区+1
-				parNo = partitionNo.get();
-				offset = partitionOffset[parNo].getAndIncrement();
+		if (offset >= KV_NUMBER_PER_PAR) {  // off >= 4000 当前分区已满，放到下一个分区
+			partitionNo.incrementAndGet(); // 分区+1
+			parNo = partitionNo.get();
+			offset = partitionOffset[parNo].getAndIncrement();
+		}
+		long valueOff = ((long) offset) << SHIF_NUM;
+		long keyOff = ((long) offset) * KEY_OFF_LEN;
+		// partitionNo和offset组成long，各自32位
+		long partitionOff = Utils.combine(parNo, offset);
+		localBufferKey.get().putLong(numKey).putLong(partitionOff);
+		localBufferKey.get().flip();
+		// keyOffMap: key -> (par, offset)
+		keyOffMaps.put(numKey, partitionOff);
+
+		if (directIOLib.binit){
+			String valueFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".data";
+			ByteBuffer valBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, VALUE_LEN);
+			valBuffer.put(value);
+			valBuffer.flip();
+			try {
+				DirectRandomAccessFile directRandomAccessFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
+				directRandomAccessFile.write(valBuffer, valueOff);
+			} catch (IOException e) {
+				log.warn("set: open value file error Partition={} off={}", parNo, offset, e);
 			}
-			long valueOff = ((long) offset) << SHIF_NUM;
-			long keyOff = ((long) offset) * KEY_OFF_LEN;
-			// partitionNo和offset组成long，各自32位
-			long partitionOff = Utils.combine(parNo, offset);
-			localBufferKey.get().putLong(numKey).putLong(partitionOff);
-			localBufferKey.get().flip();
-			// keyOffMap: key -> (par, offset)
-			keyOffMaps.put(numKey, partitionOff);
 
-			// 解决 IllegalArgumentException: Negative position
+		}else {
+			// value写入buffer
+			localBufferValue.get().put(value);
+			localBufferValue.get().flip();
+
+			try {
+				// 解决 IllegalArgumentException: Negative position
 //				log.info("partition No:{} key:{} off:{}  keyOff:{} valueOff:{} buffer:{}", parNo, key, offset, keyOff, valueOff, localBufferKey.get());
-			// 解决读取分区错误问题51
+				// 解决读取分区错误问题51
 //				log.info("set: partition No:{} key:{} off:{}   partitionOff{}", parNo, key, offset, partitionOff);
-			keyFileChannels[parNo].write(localBufferKey.get(), keyOff);
-			localBufferKey.get().clear();
+				keyFileChannels[parNo].write(localBufferKey.get(), keyOff);
+				localBufferKey.get().clear();
 
-			// 写入value到valueFile文件
-			int len = valueFileChannels[parNo].write(localBufferValue.get(), valueOff);
-			localBufferValue.get().clear();
+				// 写入value到valueFile文件
+				int len = valueFileChannels[parNo].write(localBufferValue.get(), valueOff);
+				localBufferValue.get().clear();
 
 //				log.info("set: partition No:{}  off:{} valueOff:{} key:{} writeLen:{}", parNo,  offset, key, valueOff, len);
-			// Error: 查看channel size,判断是否写入
+				// Error: 查看channel size,判断是否写入
 //			log.info("set: key:{} partition No:{} offset:{} valueOff:{}  channelSize:{} channelSize2:{} len:{}",key, parNo, offset, valueOff, valueFileChannels[parNo].size(), valueFileChannels[parNo].size()>>>SHIF_NUM, len);
 
-		} catch (IOException e) {
-			log.warn("set: value Partition={} off={} error", parNo, offset, e);
+			} catch (IOException e) {
+				log.warn("set: value Partition={} off={} error", parNo, offset, e);
+			}
 		}
-
 		return 0;
 	}
 
@@ -186,32 +245,48 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		if (partitionOff == -1) {
 			val.setValue(null);
+
 		}else {
 
 			int[] coms = Utils.divide(partitionOff);
 			int offset = coms[0];
 			int parNo = coms[1];
-
+			long valueOff = ((long) offset) << SHIF_NUM;
 			byte[] valByte = localValueBytes.get();
-			try {
-                long valueOff =  ((long)offset) << SHIF_NUM;
 
-				int len = valueFileChannels[parNo].read(localBufferValue.get(), valueOff);
-
-				// Error: 查看channel size,判断是否写入
+			if (directIOLib.binit)
+			{
+				String valueFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".data";
+				ByteBuffer valBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, VALUE_LEN);
+				try {
+					DirectRandomAccessFile directRandomAccessFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
+					int len = directRandomAccessFile.read(valBuffer, valueOff);
+					valBuffer.flip();
+					valBuffer.get(valByte, 0, len);
+					valBuffer.clear();
+				} catch (IOException e) {
+					log.warn("get: openb value file={} off={} error", parNo, offset, e);
+				}
+			}
+			else
+			{
+				try {
+					int len = valueFileChannels[parNo].read(localBufferValue.get(), valueOff);
+					// Error: 查看channel size,判断是否写入
 //				log.info("get: key:{} partition No:{} offset:{} valueOff:{} channelSize:{}  channelSize2:{}",key, parNo, offset, valueOff, valueFileChannels[parNo].size(), valueFileChannels[parNo].size()>>>SHIF_NUM);
-				// len:解决IndexOutOfBoundsException: 查看是否从valueFile中读取到数据
+					// len:解决IndexOutOfBoundsException: 查看是否从valueFile中读取到数据
 //                log.info("partition No:{}, key:{} off:{} valueOff:{} partitionOff:{} len:{}, buffer:{}",parNo, key, offset,valueOff, partitionOff, len, localBufferValue.get());
 
-				// 写入到value
-				localBufferValue.get().flip();
-				localBufferValue.get().get(valByte, 0, len);
-				localBufferValue.get().clear();
-				val.setValue(valByte);
+					// 写入到value
+					localBufferValue.get().flip();
+					localBufferValue.get().get(valByte, 0, len);
+					localBufferValue.get().clear();
 
-			} catch (IOException e) {
-				log.warn("get: value file={} off={} error", parNo, offset, e);
+				} catch (IOException e) {
+					log.warn("get: value file={} off={} error", parNo, offset, e);
+				}
 			}
+			val.setValue(valByte);
 		}
 		return 0;
 	}
