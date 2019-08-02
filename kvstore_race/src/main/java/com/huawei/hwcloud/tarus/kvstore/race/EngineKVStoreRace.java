@@ -103,7 +103,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					if (partitionOffset[i].get() >= KV_NUMBER_PER_PAR) {
 						partitionNo.getAndIncrement();
 					}
-					valueFile.close();
+//					valueFile.close();
 				} catch (IOException e) {
 					log.warn("init: can't open value file{} in thread {}", i, file_size, e);
 				}
@@ -128,7 +128,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					}
 
 					keyBuffer.clear();
-					keyFile.close();
+//					keyFile.close();
 				} catch (IOException e) {
 					log.warn("init: can't open key file{} in thread {}", i, file_size, e);
 				}
@@ -204,7 +204,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 		if (directIOLib.binit){
 
-			log.info("set: partition No:{}  off:{} valueOff:{} key:{} ", parNo,  offset, key, valueOff);
+//			log.info("set: partition No:{}  off:{} valueOff:{} key:{} ", parNo,  offset, key, valueOff);
 
 			// 写keyFile
 			/*
@@ -238,7 +238,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 				mappedByteBuffer.put(keyBuffer);
 
 				unmap(mappedByteBuffer);
-				keyFile.close();
+//				keyFile.close();
 
 			} catch (IOException e) {
 				log.warn("set: open key file error Partition={} off={}", parNo, offset, e);
@@ -253,7 +253,8 @@ public class EngineKVStoreRace implements KVStoreRace {
 			try {
 				DirectRandomAccessFile valueFile = new DirectRandomAccessFile(new File(filePath + File.separator + valueFileName), "rw");
 				valueFile.write(valBuffer, valueOff);
-				valueFile.close();
+
+//				valueFile.close();
 			} catch (IOException e) {
 				log.warn("set: open value file error Partition={} off={}", parNo, offset, e);
 			}
@@ -308,7 +309,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 			if (directIOLib.binit)
 			{
-				log.info("get:partition No:{}, key:{} off:{} valueOff:{} partitionOff:{}",parNo, key, offset,valueOff, partitionOff);
+//				log.info("get:partition No:{}, key:{} off:{} valueOff:{} partitionOff:{}",parNo, key, offset,valueOff, partitionOff);
 
 				String valueFileName = Utils.fillThreadNo(threadID) + "_" + parNo + ".data";
 				ByteBuffer valBuffer = DirectIOUtils.allocateForDirectIO(directIOLib, VALUE_LEN);
@@ -319,7 +320,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					valBuffer.get(valByte, 0, len);
 					valBuffer.clear();
 
-					valueFile.close();
+//					valueFile.close();
 				} catch (IOException e) {
 					log.warn("get: openb value file={} off={} error", parNo, offset, e);
 				}
@@ -342,7 +343,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 					log.warn("get: value file={} off={} error", parNo, offset, e);
 				}
 			}
-			log.info("get: vallength:{}",valByte.length);
+//			log.info("get: vallength:{}",valByte.length);
 			val.setValue(valByte);
 		}
 		return 0;
