@@ -1,5 +1,9 @@
 package com.huawei.hwcloud.tarus.kvstore.race.common;
 
+import io.netty.util.concurrent.FastThreadLocal;
+
+import java.nio.ByteBuffer;
+
 public class Constant {
 
     public static final int KEY_LEN = 8;
@@ -16,4 +20,29 @@ public class Constant {
 //    private static int THREAD_NUM = 16;
     // 一个分区最多存储: 4000*1024>4000000
     public static final int KV_NUMBER_PER_PAR = 4000;
+
+
+    // keyBuffer: 存储keyFile中(key,valueOff)值
+    public static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
+        @Override
+        protected ByteBuffer initialValue() throws Exception {
+            return ByteBuffer.allocateDirect(KEY_OFF_LEN);
+        }
+    };
+
+    // valueBuffer: 存储value
+    public static FastThreadLocal<ByteBuffer> localBufferValue = new FastThreadLocal<ByteBuffer>() {
+        @Override
+        protected ByteBuffer initialValue() throws Exception {
+            return ByteBuffer.allocateDirect(VALUE_LEN);
+        }
+    };
+
+    // 线程私有的buffer，用于byte数组转long
+    public static FastThreadLocal<byte[]> localValueBytes = new FastThreadLocal<byte[]>() {
+        @Override
+        protected byte[] initialValue() throws Exception {
+            return new byte[VALUE_LEN];
+        }
+    };
 }

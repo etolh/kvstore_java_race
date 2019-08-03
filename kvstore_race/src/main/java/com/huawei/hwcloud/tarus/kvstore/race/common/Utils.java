@@ -2,6 +2,13 @@ package com.huawei.hwcloud.tarus.kvstore.race.common;
 
 import com.huawei.hwcloud.tarus.kvstore.util.BufferUtil;
 
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.text.DecimalFormat;
 import java.util.Arrays;
 
@@ -13,8 +20,6 @@ public class Utils {
     // 不同线程线程名前缀 key文件 01_kv_store.key value文件 01_1.data
     private static final byte base = BufferUtil.stringToBytes("0")[0];
     private static final String THREAD_PATH_FORMAT = "0000";
-
-
 
     // key: byte[]-->long
     public static long bytes2long2(byte[] bytes) {
@@ -69,9 +74,9 @@ public class Utils {
         return ((key[0] & 0xff) << 2) | ((key[1] & 0xff) >> 6);
     }
 
-    public static final String fillThreadNo(final int no){
+    public static final String fillThreadNo(final int thread_no){
         DecimalFormat df = new DecimalFormat(THREAD_PATH_FORMAT);
-        return df.format(Integer.valueOf(no));
+        return df.format(Integer.valueOf(thread_no));
     }
 
 
@@ -107,5 +112,63 @@ public class Utils {
         byte[] bytes = new byte[4096];
         Arrays.fill(bytes,(byte)i);
         return bytes;
+    }
+
+    /**
+     * 刷新磁盘
+     */
+    private void flush(FileChannel channel) throws IOException {
+        if (channel != null && channel.isOpen()){
+            channel.force(false);
+        }
+    }
+
+    /**
+     * 清理MMAP
+     */
+    public static void clean(MappedByteBuffer mappedByteBuffer) {
+        ByteBuffer buffer = mappedByteBuffer;
+        if (buffer == null || !buffer.isDirect() || buffer.capacity() == 0)
+            return;
+        invoke(invoke(viewed(buffer), "cleaner"), "clean");
+    }
+
+    private static Object invoke(final Object target, final String methodName, final Class<?>... args) {
+        return AccessController.doPrivileged(new PrivilegedAction<Object>() {
+            public Object run() {
+                try {
+                    Method method = method(target, methodName, args);
+                    method.setAccessible(true);
+                    return method.invoke(target);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        });
+    }
+
+    private static Method method(Object target, String methodName, Class<?>[] args)
+            throws NoSuchMethodException {
+        try {
+            return target.getClass().getMethod(methodName, args);
+        } catch (NoSuchMethodException e) {
+            return target.getClass().getDeclaredMethod(methodName, args);
+        }
+    }
+
+    private static ByteBuffer viewed(ByteBuffer buffer) {
+        String methodName = "viewedBuffer";
+        Method[] methods = buffer.getClass().getMethods();
+        for (int i = 0; i < methods.length; i++) {
+            if (methods[i].getName().equals("attachment")) {
+                methodName = "attachment";
+                break;
+            }
+        }
+        ByteBuffer viewedBuffer = (ByteBuffer) invoke(buffer, methodName);
+        if (viewedBuffer == null)
+            return buffer;
+        else
+            return viewed(viewedBuffer);
     }
 }
