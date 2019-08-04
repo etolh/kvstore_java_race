@@ -48,7 +48,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 			valueDatas[i] = new ValueData();
 			valueDatas[i].init(filePath, file_size, i);
-//			log.info("init: begin load i:{}  parNo {}", i, partitionNo.get());
 
 			keyDatas[i] = new KeyData();
 			keyDatas[i].setValueData(valueDatas[i]);
@@ -57,13 +56,10 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 			keyDatas[i].load();
 			int offset = valueDatas[i].getOffset();
-//			log.info("init: before load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 			if (offset >= KV_NUMBER_PER_PAR){
 				partitionNo.getAndIncrement();
-//				log.info("init: after load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 			}
 		}
-//		loadAllIndex();
 		return true;
 	}
 
