@@ -24,7 +24,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static final int MSG_NUMBER = Constant.MSG_NUMBER;
 	private static final int PARTITION_COUNT = Constant.PARTITION_COUNT;
 	private static final int KV_NUMBER_PER_PAR = Constant.KV_NUMBER_PER_PAR;
-	private static final int THREAD_NUM = 16;
+//	private static final int THREAD_NUM = 16;
 
 	// 全局分区管理、Map映射管理
 	private AtomicInteger partitionNo = new AtomicInteger(0);
@@ -41,6 +41,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 		File dirParent = new File(dir).getParentFile();
 		if (!dirParent.exists())
 			dirParent.mkdirs();
+
 //		this.filePath = dirParent.getPath();
 		String filePath = dirParent.getPath();
 
@@ -49,15 +50,29 @@ public class EngineKVStoreRace implements KVStoreRace {
 		// 全局map
 		this.memoryMap = new HPPCMemoryMap(MSG_NUMBER, 0.99f);
 
+
 		for (int i = 0; i < PARTITION_COUNT; i++){
-			keyDatas[i] = new KeyData();
-			// keyFile使用全局map构建映射
-			keyDatas[i].init(filePath, file_size, i, memoryMap);
+
 			valueDatas[i] = new ValueData();
 			valueDatas[i].init(filePath, file_size, i);
+
+//			log.info("init: begin load i:{}  parNo {}", i, partitionNo.get());
+
+			keyDatas[i] = new KeyData();
+			keyDatas[i].setValueData(valueDatas[i]);
+			// keyFile使用全局map构建映射
+			keyDatas[i].init(filePath, file_size, i, memoryMap);
+
+			keyDatas[i].load();
+			int offset = valueDatas[i].getOffset();
+//			log.info("init: before load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
+			if (offset >= KV_NUMBER_PER_PAR){
+				partitionNo.getAndIncrement();
+				log.info("init: after load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
+			}
 		}
 
-		loadAllIndex();
+//		loadAllIndex();
 		return true;
 	}
 
@@ -65,50 +80,29 @@ public class EngineKVStoreRace implements KVStoreRace {
 	 * 加载keyFile,生成各自分区Map索引
 	 */
 	private void loadAllIndex() {
-		int loadThreadNum = THREAD_NUM;
-		CountDownLatch countDownLatch = new CountDownLatch(loadThreadNum);
-		for (int i = 0; i < loadThreadNum; i++) {
-			final int index = i;
-			new Thread(() -> {
-				for (int partition = 0; partition < PARTITION_COUNT; partition++) {
-					if (partition % loadThreadNum == index) {
-						keyDatas[partition].load();
-					}
-				}
-				countDownLatch.countDown();
-			}).start();
-		}
-
-		try {
-			countDownLatch.await();
-		} catch (InterruptedException e) {
-			log.error("load index interrupted", e);
-		}
-
 		// 二次读取KeyFile时，根据分区是否已满，找到第一个未满的分区
 		for (int i = 0; i < PARTITION_COUNT; i++) {
-			int offset = keyDatas[i].getOffset();
+			keyDatas[i].load();
+			int offset = valueDatas[i].getOffset();
+//			log.info("init: before load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 			if (offset >= KV_NUMBER_PER_PAR){
+//				log.info("init: after load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 				partitionNo.getAndIncrement();
 			}
 		}
-	}
 
-	private void increasePartition(int parNo){
-		int offset = keyDatas[parNo].getOffset();
-		if (offset >= KV_NUMBER_PER_PAR) {  // off >= 4000 当前分区已满，放到下一个分区
-			partitionNo.incrementAndGet(); // 分区+1
-			parNo = partitionNo.get();
-		}
 	}
 
 	@Override
 	public long set(final String key, final byte[] value) throws KVSException {
 
-		long numKey = Long.parseLong(key);
+        long numKey = Long.parseLong(key);
 		// 获取分区号
 		int parNo = partitionNo.get();
-		int offset = keyDatas[parNo].getOffset();
+
+//        log.info("set: key {} parNo {}", key, parNo);
+//        System.out.println("set: key"+key+" parNo"+parNo);
+        int offset = valueDatas[parNo].getOffset();
 		if (offset >= KV_NUMBER_PER_PAR) {  	// off >= 4000 当前分区已满，放到下一个分区
 			partitionNo.incrementAndGet(); 		// 分区+1
 			parNo = partitionNo.get();
@@ -121,6 +115,7 @@ public class EngineKVStoreRace implements KVStoreRace {
 
 	@Override
 	public long get(final String key, final Ref<byte[]> val) throws KVSException {
+
         long numKey = Long.parseLong(key);
         // 从全局Map获取parNo,off
 		long partitionOff = memoryMap.get(numKey);
@@ -131,7 +126,9 @@ public class EngineKVStoreRace implements KVStoreRace {
 			int[] coms = Utils.divide(partitionOff);
 			int offset = coms[0];
 			int parNo = coms[1];
-			byte[] bytes = valueDatas[parNo].read(offset);
+//			System.out.println("get: key"+ key+"parNo"+parNo);
+//			log.info("get: key:{} parNo {} offset {}", key, parNo, offset);
+            byte[] bytes = valueDatas[parNo].read(offset);
 			val.setValue(bytes);
 		}
 		return 0;
@@ -140,13 +137,15 @@ public class EngineKVStoreRace implements KVStoreRace {
 	@Override
 	public void close() {
 		if (keyDatas != null) {
-			for (KeyData keyData : keyDatas){
-				keyData.close();
+			for (KeyData keyFile : keyDatas){
+				if (keyFile != null)
+					keyFile.close();
 			}
 		}
 		if (valueDatas != null) {
-			for (ValueData valueData : valueDatas){
-				valueData.close();
+			for (ValueData valueFile : valueDatas){
+				if (valueFile != null)
+					valueFile.close();
 			}
 		}
 	}

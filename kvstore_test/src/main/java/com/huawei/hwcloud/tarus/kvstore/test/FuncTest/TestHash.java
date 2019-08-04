@@ -64,6 +64,59 @@ public class TestHash {
     }
 
     @Test
+    public void testKey() {
+//        long n1 =12885358397L, n2 = 12885358497L;
+        long n1 =0, n2 = 12885358497L;
+//        String sl1 = "12885411404", sl2 = "12885411404";
+
+//        byte[] ls = Utils.long2bytes(n1);
+//        byte[] ls2 = Utils.long2bytes(n2);
+//        System.out.println("Par: "+ Utils.getPartition(ls));
+//        System.out.println("Par: "+ Utils.getPartition(ls2));
+
+//        String n1s = "12885358397", n2s = "30020841000000472";
+//        byte[] lss = BufferUtil.stringToBytes(n1s);
+//        byte[] lss2 = BufferUtil.stringToBytes(n1s);
+//        System.out.println("Par: "+ Utils.getPartition(lss));
+//        System.out.println("Par: "+ Utils.getPartition(lss2));
+//
+//        for (int i = 0; i < ls.length; i++)
+//            System.out.println("ls"+i+"-"+ls[i]);
+//        long n1 = Long.parseLong(sl1);
+        System.out.println(Utils.getPartition2(1L));
+
+        for (long k = n1; k <= n1 + 10000; k++) {
+//            byte[] ls = Utils.long2bytes(k);
+//            String s = String.valueOf(k);
+//            byte[] ls = BufferUtil.stringToBytes(s);
+//            byte[] ls = s.getBytes();
+
+//            for (int i = 0; i < ls.length; i++)
+//                System.out.print(ls[i]+" ");
+//            System.out.println();
+            //                System.out.print(ls[i]+" ");
+            System.out.println("i:"+(k-n1)+"  Par:"+ Utils.getPartition2(k));
+
+
+        }
+
+
+
+//        for (long i = n1; i <= n2; i++){
+//            byte[] ls = Utils.long2bytes(i);
+//            System.out.println("i:"+(i-n1)+"  Par:"+ Utils.getPartition(ls));
+//        }
+
+        byte b1 = (byte)1;
+        byte b2 = 2;
+//        String binaryString = Byte;
+
+//        System.out.println(binaryString);
+    }
+
+
+
+    @Test
     public void testBitOpr() {
         byte a = 'a';
         System.out.println(a);

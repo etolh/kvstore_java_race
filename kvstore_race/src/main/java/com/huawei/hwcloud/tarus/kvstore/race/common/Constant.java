@@ -7,10 +7,10 @@ import java.nio.ByteBuffer;
 public class Constant {
 
     public static final int KEY_LEN = 8;
-    public static final int VALUE_LEN = 4096;	// 4KB
+    public static final int SHIFT_NUM = 12;
+    public static final int VALUE_LEN = 1 << SHIFT_NUM;	// 4KB
     // key:8B fileNo:2B off:2B
     public static final int KEY_OFF_LEN = 16;
-    public static final int SHIFT_NUM = 12;
     // 数据量
     public static final int MSG_NUMBER = 4096000;
     // 文件数量:keyFile和valueFile切分1024个分区

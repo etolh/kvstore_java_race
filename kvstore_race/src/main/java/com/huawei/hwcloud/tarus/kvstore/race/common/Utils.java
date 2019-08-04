@@ -74,6 +74,11 @@ public class Utils {
         return ((key[0] & 0xff) << 2) | ((key[1] & 0xff) >> 6);
     }
 
+    public static int getPartition2(long key){
+        // 直接取key的12～21位
+        return (((byte)key) >> 12) & 0x03ff;
+    }
+
     public static final String fillThreadNo(final int thread_no){
         DecimalFormat df = new DecimalFormat(THREAD_PATH_FORMAT);
         return df.format(Integer.valueOf(thread_no));
@@ -109,7 +114,7 @@ public class Utils {
     }
 
     public static final byte[] buildVal(final int i) {
-        byte[] bytes = new byte[4096];
+        byte[] bytes = new byte[Constant.VALUE_LEN];
         Arrays.fill(bytes,(byte)i);
         return bytes;
     }

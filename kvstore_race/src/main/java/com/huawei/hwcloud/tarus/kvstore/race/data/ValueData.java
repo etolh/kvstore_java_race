@@ -16,16 +16,19 @@ import java.nio.channels.FileChannel;
 public class ValueData {
 
     private final static Logger logger = LoggerFactory.getLogger(ValueData.class);
+    private final int SHIFT_NUM = Constant.SHIFT_NUM;
 
     private FileChannel valueFileChannel;
     private int fileLength;
+    private int offset;
+
     // KeyFileMMAP
     private MappedByteBuffer mmap;
     // 一行记录长度
     private int recordLength = Constant.VALUE_LEN;
 
     private ByteBuffer valueBuffer;
-//    private byte[] valueBytes;
+    private byte[] valueBytes;
 
     /**
      * 获取ValueFile channel
@@ -36,29 +39,35 @@ public class ValueData {
         try {
             valueFileChannel = new RandomAccessFile(path, "rw").getChannel();
             this.fileLength = (int)valueFileChannel.size();
+            this.offset = (int)(valueFileChannel.size() >>> SHIFT_NUM);
         } catch (IOException e) {
             logger.warn("init: can't open value file{} in thread {}", parNO, thread_no, e);
         }
 
         this.valueBuffer = Constant.localBufferValue.get();
-//        this.valueBytes = Constant.localValueBytes.get();
+        this.valueBytes = Constant.localValueBytes.get();
     }
 
     /**
      * 读取offset偏移位置的value值
      */
     public byte[] read(long offset){
-        long position = offset << Constant.SHIFT_NUM;
+
+        long position = offset << SHIFT_NUM;
         // 从channel读
         try {
-            valueFileChannel.read(valueBuffer, position);
+            int len = valueFileChannel.read(valueBuffer, position);
+//            System.out.println("read:"+ len);
         } catch (IOException e) {
             logger.warn("read: read from value file error", e);
         }
+
+        valueBuffer.flip();
         // 写入到bytes
-//        valueBuffer.get(valueBytes, 0, recordLength);
-//        return valueBytes;
-        return valueBuffer.array();         // buffer -> byte[]
+        valueBuffer.get(valueBytes, 0, recordLength);
+        valueBuffer.clear();
+        return valueBytes;
+//        return valueBuffer.array();         // buffer -> byte[]
     }
 
     /**
@@ -70,6 +79,7 @@ public class ValueData {
         valueBuffer.flip();
         try {
             valueFileChannel.write(valueBuffer, fileLength);
+//            System.out.println("write:"+ len);
         } catch (IOException e) {
             logger.warn("set: write into value file error", e);
         }
@@ -77,6 +87,7 @@ public class ValueData {
 
         // 更新
         fileLength += recordLength;
+        offset += 1;
     }
 
     public void close(){
@@ -91,9 +102,9 @@ public class ValueData {
     }
 
     /**
-     * 返回value文件偏移量(value个数)
+     * 返回value文件偏移量(key或value个数)
      */
     public int getOffset(){
-        return 0;
+        return offset;
     }
 }
