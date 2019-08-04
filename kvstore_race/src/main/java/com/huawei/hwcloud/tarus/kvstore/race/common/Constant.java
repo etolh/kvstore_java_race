@@ -21,7 +21,6 @@ public class Constant {
     // 一个分区最多存储: 4000*1024>4000000
     public static final int KV_NUMBER_PER_PAR = 4000;
 
-
     // keyBuffer: 存储keyFile中(key,valueOff)值
     public static FastThreadLocal<ByteBuffer> localBufferKey = new FastThreadLocal<ByteBuffer>() {
         @Override

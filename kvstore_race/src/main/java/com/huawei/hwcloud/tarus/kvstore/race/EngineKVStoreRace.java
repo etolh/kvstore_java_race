@@ -1,6 +1,5 @@
 package com.huawei.hwcloud.tarus.kvstore.race;
 
-import com.carrotsearch.hppc.LongLongHashMap;
 import com.huawei.hwcloud.tarus.kvstore.common.KVStoreRace;
 import com.huawei.hwcloud.tarus.kvstore.common.Ref;
 import com.huawei.hwcloud.tarus.kvstore.exception.KVSException;
@@ -10,12 +9,10 @@ import com.huawei.hwcloud.tarus.kvstore.race.data.ValueData;
 import com.huawei.hwcloud.tarus.kvstore.race.index.KeyData;
 import com.huawei.hwcloud.tarus.kvstore.race.index.map.HPPCMemoryMap;
 import com.huawei.hwcloud.tarus.kvstore.race.index.map.MemoryMap;
-import com.huawei.hwcloud.tarus.kvstore.race.partition.PartitionLayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class EngineKVStoreRace implements KVStoreRace {
@@ -24,13 +21,11 @@ public class EngineKVStoreRace implements KVStoreRace {
 	private static final int MSG_NUMBER = Constant.MSG_NUMBER;
 	private static final int PARTITION_COUNT = Constant.PARTITION_COUNT;
 	private static final int KV_NUMBER_PER_PAR = Constant.KV_NUMBER_PER_PAR;
-//	private static final int THREAD_NUM = 16;
 
 	// 全局分区管理、Map映射管理
 	private AtomicInteger partitionNo = new AtomicInteger(0);
 	private MemoryMap memoryMap;
 	// new
-//	private String filePath;
 	private KeyData[] keyDatas;
 	private ValueData[] valueDatas;
 
@@ -42,7 +37,6 @@ public class EngineKVStoreRace implements KVStoreRace {
 		if (!dirParent.exists())
 			dirParent.mkdirs();
 
-//		this.filePath = dirParent.getPath();
 		String filePath = dirParent.getPath();
 
 		keyDatas = new KeyData[PARTITION_COUNT];
@@ -50,12 +44,10 @@ public class EngineKVStoreRace implements KVStoreRace {
 		// 全局map
 		this.memoryMap = new HPPCMemoryMap(MSG_NUMBER, 0.99f);
 
-
 		for (int i = 0; i < PARTITION_COUNT; i++){
 
 			valueDatas[i] = new ValueData();
 			valueDatas[i].init(filePath, file_size, i);
-
 //			log.info("init: begin load i:{}  parNo {}", i, partitionNo.get());
 
 			keyDatas[i] = new KeyData();
@@ -68,10 +60,9 @@ public class EngineKVStoreRace implements KVStoreRace {
 //			log.info("init: before load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 			if (offset >= KV_NUMBER_PER_PAR){
 				partitionNo.getAndIncrement();
-				log.info("init: after load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
+//				log.info("init: after load i:{}  parNo {} offset:{}", i, partitionNo.get(), offset);
 			}
 		}
-
 //		loadAllIndex();
 		return true;
 	}
@@ -99,7 +90,6 @@ public class EngineKVStoreRace implements KVStoreRace {
         long numKey = Long.parseLong(key);
 		// 获取分区号
 		int parNo = partitionNo.get();
-
 //        log.info("set: key {} parNo {}", key, parNo);
 //        System.out.println("set: key"+key+" parNo"+parNo);
         int offset = valueDatas[parNo].getOffset();

@@ -92,9 +92,9 @@ public class KeyData {
             } catch (IOException e) {
                 logger.warn("close: close key file channel error", e);
             }
-            Utils.clean(this.mmap);
+//          Utils.clean(this.mmap);
+            //this.mmap = null;
             this.keyFileChannel = null;
-            this.mmap = null;
         }
     }
 

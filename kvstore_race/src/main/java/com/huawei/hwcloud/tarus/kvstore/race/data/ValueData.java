@@ -9,8 +9,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 public class ValueData {
@@ -22,13 +22,15 @@ public class ValueData {
     private int fileLength;
     private int offset;
 
+    private static ThreadLocal<ByteBuffer> bufferThreadLocal = ThreadLocal.withInitial(() -> ByteBuffer.allocate(Constant.VALUE_LEN));
+    private static ThreadLocal<byte[]> byteArrayThreadLocal = ThreadLocal.withInitial(() -> new byte[Constant.VALUE_LEN]);
     // KeyFileMMAP
-    private MappedByteBuffer mmap;
+//    private MappedByteBuffer mmap;
     // 一行记录长度
     private int recordLength = Constant.VALUE_LEN;
 
-    private ByteBuffer valueBuffer;
-    private byte[] valueBytes;
+//    private ByteBuffer valueBuffer;
+//    private byte[] valueBytes;
 
     /**
      * 获取ValueFile channel
@@ -44,14 +46,17 @@ public class ValueData {
             logger.warn("init: can't open value file{} in thread {}", parNO, thread_no, e);
         }
 
-        this.valueBuffer = Constant.localBufferValue.get();
-        this.valueBytes = Constant.localValueBytes.get();
+//        this.valueBuffer = Constant.localBufferValue.get();
+//        this.valueBytes = Constant.localValueBytes.get();
     }
 
     /**
      * 读取offset偏移位置的value值
      */
     public byte[] read(long offset){
+
+        ByteBuffer valueBuffer = bufferThreadLocal.get();
+        byte[] valueBytes = byteArrayThreadLocal.get();
 
         long position = offset << SHIFT_NUM;
         // 从channel读
@@ -61,13 +66,11 @@ public class ValueData {
         } catch (IOException e) {
             logger.warn("read: read from value file error", e);
         }
-
         valueBuffer.flip();
         // 写入到bytes
         valueBuffer.get(valueBytes, 0, recordLength);
         valueBuffer.clear();
         return valueBytes;
-//        return valueBuffer.array();         // buffer -> byte[]
     }
 
     /**
@@ -75,15 +78,20 @@ public class ValueData {
      */
     public void write(final byte[] value){
 
-        valueBuffer.put(value);
+        ByteBuffer valueBuffer = bufferThreadLocal.get();
+        try {
+            valueBuffer.put(value, 0, value.length);
+        }catch (BufferOverflowException e){
+            logger.warn("valueData: valueBuffer:{} offset:{} valueLength:{}",  valueBuffer, offset, value.length);
+        }
         valueBuffer.flip();
         try {
             valueFileChannel.write(valueBuffer, fileLength);
+            valueBuffer.clear();
 //            System.out.println("write:"+ len);
         } catch (IOException e) {
             logger.warn("set: write into value file error", e);
         }
-        valueBuffer.clear();
 
         // 更新
         fileLength += recordLength;
@@ -91,7 +99,6 @@ public class ValueData {
     }
 
     public void close(){
-        this.valueBuffer = null;
         if (this.valueFileChannel != null) {
             try {
                 this.valueFileChannel.close();

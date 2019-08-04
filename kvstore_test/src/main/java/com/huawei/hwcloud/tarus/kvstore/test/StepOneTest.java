@@ -18,8 +18,8 @@ public class StepOneTest {
     public void testWriteRead() {
 
         int nums = 4096;
-        String path = "/Users/lianghu/Desktop/Program/kvstore_java_race/kvstore_test/src/main/java/com/huawei/hwcloud/tarus/kvstore/test/data/data0";
-//        String path = "C:\\Users\\t-liah\\Desktop\\db\\program\\kvstore_java_race\\kvstore_test\\src\\main\\java\\com\\huawei\\hwcloud\\tarus\\kvstore\\test\\data\\data0";
+//        String path = "/Users/lianghu/Desktop/Program/kvstore_java_race/kvstore_test/src/main/java/com/huawei/hwcloud/tarus/kvstore/test/data/data0";
+        String path = "C:\\Users\\t-liah\\Desktop\\db\\program\\kvstore_java_race\\kvstore_test\\src\\main\\java\\com\\huawei\\hwcloud\\tarus\\kvstore\\test\\data\\data0";
         KVStoreRace race = new EngineKVStoreRace();
         race.init(path, 1);
 
