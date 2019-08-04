@@ -33,7 +33,7 @@ public class ValueData {
     private int recordLength = Constant.VALUE_LEN;
 
     // Direct IO
-    public static DirectIOLib directIOLib = DirectIOLib.getLibForPath("/");
+    private static DirectIOLib directIOLib = DirectIOLib.getLibForPath("/");
     private DirectRandomAccessFile directRandomAccessFile;
     private ByteBuffer writeBuffer;
     private int writePosition;
@@ -82,6 +82,7 @@ public class ValueData {
             } catch (IOException e) {
                 logger.warn("read: read from value file error", e);
             }
+
         }
         else {
             // 从channel读
@@ -92,6 +93,8 @@ public class ValueData {
                 logger.warn("read: read from value file error", e);
             }
         }
+
+//        logger.info("get:  offset {} buffer:{}",  offset, valueBuffer);
 
         valueBuffer.flip();
         // 写入到bytes
@@ -108,8 +111,11 @@ public class ValueData {
         if (DirectIOLib.binit)
         {
             // 拷贝value到writeBuffer中，writeBufferAddress是writeBuffer地址
-            UNSAFE.copyMemory(value, 16, null, writeBufferAddress + writePosition * recordLength, recordLength );
+//            UNSAFE.copyMemory(value, 16, null, writeBufferAddress + writePosition * recordLength, recordLength);
+            writeBuffer.put(value);
             this.writePosition++;
+//            logger.info("set: valueLength:{} offset {} buffer:{}", value.length, offset, writeBuffer);
+
             if (writePosition >= 4){
                 this.writeBuffer.position(0);
                 this.writeBuffer.limit(writePosition * recordLength);
@@ -118,12 +124,13 @@ public class ValueData {
                 } catch (IOException e) {
                     logger.warn("valueData: valueBuffer:{} offset:{} valueLength:{}",  writeBuffer, offset, value.length);
                 }
-            }
 
-            // 更新
-            fileLength += writePosition * recordLength;
-            offset += writePosition;
-            writePosition = 0;
+                writeBuffer.clear();
+                // 更新
+                fileLength += writePosition * recordLength;
+                offset += writePosition;
+                writePosition = 0;
+            }
         }
         else {
             ByteBuffer valueBuffer = bufferThreadLocal.get();
