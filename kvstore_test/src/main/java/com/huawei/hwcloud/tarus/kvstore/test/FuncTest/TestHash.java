@@ -162,6 +162,18 @@ public class TestHash {
     }
 
     @Test
+    public void testParitition(){
+        long begin = 12885411404L, num = 10000, div = 4096;
+        long bPar = begin / div;
+//        System.out.println(begin / 4096 - bPar);
+//        System.out.println((begin >>> 12) - bPar);
+        // 位操作必须()
+        for (long i = begin; i <= begin + num; i++){
+            System.out.println("i:"+(i-begin)+" par:"+(i/div-bPar));
+            System.out.println("bit i:"+(i-begin)+" par:"+((i>>>12)-bPar));
+        }
+    }
+    @Test
     public void testCombine() {
 //        long pos = Utils.combine(12, 234);
         long pos = 0L;
